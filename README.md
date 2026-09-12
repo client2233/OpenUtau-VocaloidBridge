@@ -77,7 +77,14 @@ python openutau-plugin/install.py --data-dir /example/OpenUtau-data
 
 ## 表情参数
 
-以下为前述假设兼容条件下的映射定义。**TEN/TENC 借作 BRI，保留 VEL 的辅音速度用途。** 在钢琴窗的表情选择器选择对应参数；新增项目显示为 `V6 …`，缩写如下。完整通道直接传 JSON，不经过旧 ENUNU 对 VEL 的取整。
+一般只需调整音高、亮度（TEN/TENC → BRI）、气声（BRE/BREC）和响度（OpenUtau DYN）。其余参数保留默认值即可。
+
+下面的完整列表同时包含后端控制器、音符表情和 OpenUtau 输出处理，因此数量较多；它们不是都需要调整，也不都是新增参数。**TEN/TENC 借作 BRI，VEL 保留辅音速度用途。** VDYN 调整后端合成动态，OpenUtau DYN 调整渲染后的响度，两者作用不同。
+
+<details>
+<summary>完整参数映射（含进阶控制）</summary>
+
+以下为前述假设兼容条件下的映射定义。在钢琴窗的表情选择器选择对应参数；新增项目显示为 `V6 …`。完整通道直接传 JSON，不经过旧 ENUNU 对 VEL 的取整。
 
 | OpenUtau 参数 | 后端参数 | 映射与用途 |
 | --- | --- | --- |
@@ -103,9 +110,11 @@ python openutau-plugin/install.py --data-dir /example/OpenUtau-data
 
 GEN 与 Character 的方向不同；参数含义可参考 [官方参考手册](https://rsc-net.vocaloid.com/assets/pdf_files/bb/VOCALOID_Reference_Manual_ENG.pdf)。数值/曲线映射以本项目代码为准，不保证与编辑器的全部处理链完全相同。
 
-在本机传统洛天依声库的相同基线重复渲染对照中，BRI、BRE、Character、CLE、GWL、POR、DYN、AIR、Exciter、Opening、Accent、Decay 均有明确 PCM 差异。完整 OpenUtau Core → ZMQ → Wine 的链路、变速对齐、精确 VEL、缓存复用/失效、停止服务后的及时返回，以及普通声库隔离也有回归检查。Ning/Wan/Meng 基础拼音和音高渲染均通过；此结果不代表任意接口版本或声库都兼容。
+在本机已配置的传统声库的相同基线重复渲染对照中，BRI、BRE、Character、CLE、GWL、POR、DYN、AIR、Exciter、Opening、Accent、Decay 均有明确 PCM 差异。完整 OpenUtau Core → ZMQ → Wine 的链路、变速对齐、精确 VEL、缓存复用/失效、停止服务后的及时返回，以及普通声库隔离也有回归检查。已配置声库的基础拼音和音高渲染均通过；此结果不代表任意接口版本或声库都兼容。
 
 当前没有确认可用的 XSY 曲线/第二声库入口；AI 专属 Expression、Take 和编辑器效果器链不在支持范围。音符 Opening 与独立 Mouth/Voice Color 偏移不可混为同一个接口。其余 Classic 专用表情（例如 MOD、LPF、NORM）没有映射，不会因为出现在工程里就自动传给后端。
+
+</details>
 
 升级本版本需要重新编译和安装**插件 DLL**，并重启 OpenUtau 与桥接；不需要重新编译 OpenUtau。每次启动 OpenUtau 后打开一次插件菜单以启用本次进程的完整通道。
 
