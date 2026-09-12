@@ -1,0 +1,9 @@
+{
+  "api_dir": "/example/user-provided-api",
+  "wine": "/usr/bin/wine",
+  "wine_prefix": "/example/existing-wine-prefix",
+  "windows_python": "/example/python.exe",
+  "vocaloid_dir": "C:\\Example\\Editor",
+  "common_dir": "C:\\Example\\Resources",
+  "timeout_seconds": 120
+}
