@@ -25,3 +25,12 @@ with tempfile.TemporaryDirectory() as folder:
         note=score(ust)[1][0]
         assert note['lyric']==lyric and 'phoneme' not in note
 print('PASS: UST timing, rests and F0; lyrics forwarded without engine phoneme conversion')
+
+with tempfile.TemporaryDirectory() as folder:
+    root = Path(folder)
+    (root/'bridge.voice.json').write_text(json.dumps(dict(comp_id='test', lang_id=4)))
+    ust = root/'velocity.ust'
+    for value, expected in ((0,0),(100,64),(200,127)):
+        ust.write_text(f'[#SETTING]\nTempo=120\nVoiceDir={root}\n[#0000]\nLength=480\nLyric=ni3\nNoteNum=60\nVelocity={value}\n[#TRACKEND]\n', encoding='shift_jis')
+        assert score(ust)[1][0]['velocity'] == expected
+print('PASS: UST velocity mapping')

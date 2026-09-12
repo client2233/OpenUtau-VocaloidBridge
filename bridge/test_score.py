@@ -39,3 +39,13 @@ assert score['tracks'][0]['parts'][0]['notes'][0]['phoneme'] == 'n i'
 assert not score['masterTrack']['loop']['isEnabled']
 assert score['masterTrack']['loop']['end'] > 12000*.96
 print('PASS: pinyin request fallback and no fixed-loop truncation')
+
+for velocity in (0,64,127):
+    request['notes'][0]['velocity'] = velocity
+    assert make_sequence(request)['tracks'][0]['parts'][0]['notes'][0]['velocity'] == velocity
+for velocity in (-1,128,float('nan')):
+    request['notes'][0]['velocity'] = velocity
+    try: make_sequence(request)
+    except ValueError: pass
+    else: raise AssertionError('Invalid velocity accepted')
+print('PASS: note velocity forwarding and validation')

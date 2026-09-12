@@ -48,6 +48,10 @@ def make_sequence(request):
         note.update(pos=position, duration=duration, number=tone,
                     lyric=source.get('lyric', phoneme), phoneme=phoneme,
                     langID=lang, isProtected=True)
+        velocity = source.get('velocity', 64)
+        if not isinstance(velocity, (int, float)) or not math.isfinite(velocity) or not 0 <= velocity <= 127:
+            raise ValueError('Invalid note velocity')
+        note['velocity'] = round(velocity)
         note['vibrato'] = {'type': 0, 'duration': 0}
         note['singingSkill'] = {'duration': 0, 'weight': {'pre': 64, 'post': 64}}
         note['exp'] = {'accent': 50, 'decay': 50, 'bendDepth': 0,

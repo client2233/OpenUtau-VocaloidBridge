@@ -38,7 +38,7 @@ def score(path):
         frame_segments.append((start,end,0 if lyric=='R' else int(block['NoteNum'])))
         if lyric != 'R':
             notes.append(dict(position_ms=start,duration_ms=end-start,tone=int(block['NoteNum']),
-                              lyric=lyric))
+                              lyric=lyric, velocity=max(0, min(127, round(float(block.get('Velocity', 100)) * 64 / 100)))))
     return voice, notes, frame_segments, cursor / 480 * 60000 / tempo
 
 

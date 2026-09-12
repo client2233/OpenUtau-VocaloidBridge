@@ -72,6 +72,7 @@ python openutau-plugin/install.py --data-dir /example/OpenUtau-data
 - 点击 **停止桥接** 可手动停止；退出调用它的 OpenUtau 后会停止它启动的服务。
 - 桥接启动成功后，插件会通知 OpenUtau 重新调度预渲染；需启用 OpenUtau 的预渲染设置。
 - 服务使用本机 15555 和 15556 端口。真正的端口冲突需先停止旧服务，插件不会接管外部进程。
+- 音高曲线（含滑音和 OpenUtau 颤音）映射为后端 PIT，PBS 固定为 12 半音；DYN 由 OpenUtau 在渲染后调整响度。实验性 VEL 通过 UST 传给后端音符 velocity：100 → 64，0 → 0，200 → 127，用于辅音速度，非音量。真实渲染对照中 127 相对默认 64 有明显波形差异，但 0 几乎无差异；尚未验证所有声库和音节的辅音时长。可运行 `python3 bridge/test_api_velocity.py` 复测。注意部分 OpenUtau 版本的 ENUNU 导出会先取整 velocity，可能只能传出 0/100/200，桥接无法恢复已丢失的中间值。GEN/BRE/TEN/VOI 连续曲线及 Voice Color 暂未接入。
 - 当前适配传统中文声库和拼音；数字声调忽略，ü 使用 `v` 或 `u:`。不支持 AI 声库和句内变速，其他引擎表现参数未充分实现或验证。
 
 独立打开设置窗口可运行 `python enunu/configure.py`；未指定父进程时，关闭窗口会停止服务。
