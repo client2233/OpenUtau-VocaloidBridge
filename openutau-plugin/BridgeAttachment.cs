@@ -48,14 +48,16 @@ internal sealed class BridgeAttachment(string config, DocManager manager) : ICmd
         }
         if (project.tracks.Any(t => t.RendererSettings.Renderer == renderer) && preparedProject != project) {
             preparedProject = project;
-            var missing = BridgeRenderer.Expressions.Where(e => !project.expressions.ContainsKey(e.abbr)).ToArray();
-            if (missing.Length > 0) {
-                manager.StartUndoGroup();
-                manager.ExecuteCmd(new ConfigureExpressionsCommand(project,
-                    project.expressions.Values.Concat(missing.Select(e => e.Clone())).ToArray()));
-                manager.EndUndoGroup();
-                changed = true;
-            }
+            // Replace matching abbreviations and retire the old V-prefixed
+            // duplicates. Keep unrelated native/custom expressions intact.
+            var definitions = project.expressions.Values
+                .Where(e => !BridgeRenderer.LegacyExpressions.Contains(e.abbr)
+                    && !BridgeRenderer.Expressions.Any(x => x.abbr == e.abbr))
+                .Concat(BridgeRenderer.Expressions.Select(e => e.Clone())).ToArray();
+            manager.StartUndoGroup();
+            manager.ExecuteCmd(new ConfigureExpressionsCommand(project, definitions));
+            manager.EndUndoGroup();
+            changed = true;
         }
         if (changed) {
             manager.ExecuteCmd(new ValidateProjectNotification());

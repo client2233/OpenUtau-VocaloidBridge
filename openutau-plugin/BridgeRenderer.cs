@@ -20,22 +20,26 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
     public bool SupportsRenderPitch => false; // No measured engine F0 is available.
     public override string ToString() => "ENUNU";
     public static readonly UExpressionDescriptor[] Expressions = [
-        Curve("V6 dynamics", "vdyn", 64),
-        new("V6 pitch bend sensitivity", "vpbs", 0, 24, 12) { type = UExpressionType.Curve },
-        Curve("V6 clearness", "vcle", 0),
-        Curve("V6 air", "vair", 0),
-        new("V6 exciter", "vexc", -64, 63, 0) { type = UExpressionType.Curve },
-        Curve("V6 growl", "vgwl", 0),
-        Curve("V6 portamento timing", "vpor", 64),
-        Curve("V6 opening (note onset)", "vope", 127),
-        new("V6 accent (note onset)", "vacc", 0, 100, 50) { type = UExpressionType.Curve },
-        new("V6 decay (note onset)", "vdec", 0, 100, 50) { type = UExpressionType.Curve },
+        Curve("dynamics", "dyn", 64),
+        Curve("brightness", "bri", 64),
+        Curve("breathiness", "bre", 0),
+        new("character", "chr", -64, 63, 0) { type = UExpressionType.Curve },
+        new("pitch bend sensitivity", "pbs", 0, 24, 12) { type = UExpressionType.Curve },
+        Curve("clearness", "cle", 0),
+        Curve("air", "air", 0),
+        new("exciter", "exc", -64, 63, 0) { type = UExpressionType.Curve },
+        Curve("growl", "gwl", 0),
+        Curve("portamento", "por", 64),
+        Curve("opening", "ope", 127),
+        new("accent", "acc", 0, 100, 50) { type = UExpressionType.Curve },
+        new("decay", "dec", 0, 100, 50) { type = UExpressionType.Curve },
+        new("velocity", "vel", 0, 127, 64),
     ];
+    internal static readonly string[] LegacyExpressions = ["vdyn", "vpbs", "vcle", "vair", "vexc", "vgwl", "vpor", "vope", "vacc", "vdec"];
     private static UExpressionDescriptor Curve(string name, string abbr, int value) =>
         new(name, abbr, 0, 127, value) { type = UExpressionType.Curve };
     public bool SupportsExpression(UExpressionDescriptor descriptor) =>
-        new[] { "dyn", "pitd", "genc", "brec", "tenc", "voic", "shfc", "vel", "vol", "gen", "bre" }
-            .Contains(descriptor.abbr) || Expressions.Any(exp => exp.abbr == descriptor.abbr);
+        descriptor.abbr == "pitd" || Expressions.Any(exp => exp.abbr == descriptor.abbr);
     public UExpressionDescriptor[] GetSuggestedExpressions(USinger singer, URenderSettings settings) => Expressions;
     public RenderResult Layout(RenderPhrase phrase) => layoutRenderer.Layout(phrase);
     public RenderPitchResult LoadRenderedPitch(RenderPhrase phrase) => null!;
@@ -53,11 +57,11 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
             duration_ms = phone.durationMs,
             tone = phone.tone,
             lyric = phone.phoneme,
-            velocity = Math.Clamp((int)Math.Round(phone.velocity * 64), 0, 127),
+            velocity = Math.Clamp((int)Math.Round(phone.velocity * 100), 0, 127),
             expressions = new {
-                opening = (int)Math.Round(Sample(Custom("vope"), phone.positionMs, 127)),
-                accent = (int)Math.Round(Sample(Custom("vacc"), phone.positionMs, 50)),
-                decay = (int)Math.Round(Sample(Custom("vdec"), phone.positionMs, 50)),
+                opening = (int)Math.Round(Sample(Custom("ope"), phone.positionMs, 127)),
+                accent = (int)Math.Round(Sample(Custom("acc"), phone.positionMs, 50)),
+                decay = (int)Math.Round(Sample(Custom("dec"), phone.positionMs, 50)),
             },
         }).ToArray();
         float Sample(float[]? curve, double ms, float defaultValue) {
@@ -69,41 +73,35 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
         }
         float[]? Custom(string abbr) => phrase.curves?.FirstOrDefault(c => c.Item1 == abbr)?.Item2;
         var controllers = new Dictionary<string, object>();
-        void Controller(string name, float[]? curve, float defaultValue, Func<float, double> convert, int min = 0, int max = 127, string? noteAbbr = null) {
+        void Controller(string name, float[]? curve, float defaultValue, int min = 0, int max = 127) {
             controllers[name] = new { frame_period_ms = 5, values = Enumerable.Range(0, frames)
-                .Select(i => Math.Clamp((int)Math.Round(convert(Sample(curve, startMs + i * 5, defaultValue) + NoteValue(noteAbbr, startMs + i * 5))), min, max)).ToArray() };
+                .Select(i => Math.Clamp((int)Math.Round(Sample(curve, startMs + i * 5, defaultValue)), min, max)).ToArray() };
         }
-        int NoteValue(string? abbr, double ms) {
-            if (abbr is null) return 0;
-            var phone = phones.LastOrDefault(p => p.positionMs <= ms) ?? phones[0];
-            return phone.flags.FirstOrDefault(f => f.Item3 == abbr)?.Item2 ?? 0;
-        }
-        double Centered(float x) => x <= 0 ? 64 + x * .64 : 64 + x * .63;
-        Controller("brightness", phrase.tension, 0, Centered); // TEN -> BRI
-        Controller("character", phrase.gender, 0, x => x <= 0 ? -x * .63 : -x * .64, -64, 63, "gen"); // Preserve GEN direction.
-        Controller("breathiness", phrase.breathiness, 0, x => Math.Max(0, x) * 1.27, noteAbbr: "bre");
-        Controller("clearness", Custom("vcle"), 0, x => x);
-        Controller("growl", Custom("vgwl"), 0, x => x);
-        Controller("air", Custom("vair"), 0, x => x);
-        Controller("exciter", Custom("vexc"), 0, x => x, -64, 63);
-        Controller("portamento", Custom("vpor"), 64, x => x);
-        controllers["dynamics"] = new { frame_period_ms = 5, values = Enumerable.Range(0, frames)
-            .Select(i => (int)Math.Round(Math.Clamp(Sample(Custom("vdyn"), startMs + i * 5, 64)
-                * Sample(phrase.voicing, startMs + i * 5, 100) / 100, 0, 127))).ToArray() };
+        Controller("brightness", Custom("bri"), 64);
+        Controller("character", Custom("chr"), 0, -64, 63);
+        Controller("breathiness", Custom("bre"), 0);
+        Controller("clearness", Custom("cle"), 0);
+        Controller("growl", Custom("gwl"), 0);
+        Controller("air", Custom("air"), 0);
+        Controller("exciter", Custom("exc"), 0, -64, 63);
+        Controller("portamento", Custom("por"), 64);
+        // Core converts DYN to linear gain before passing the phrase. Undo
+        // that conversion to recover the backend's native 0..127 controller.
+        var dynamics = phrase.dynamics?.Select(x => x <= 0 ? 0f : (float)(200 * Math.Log10(x))).ToArray();
+        Controller("dynamics", dynamics, 64);
         var f0 = new double[frames];
         int phoneIndex = 0;
         for (int i = 0; i < frames; i++) {
             double ms = startMs + i * 5;
             while (phoneIndex < phones.Length && ms >= phones[phoneIndex].endMs) phoneIndex++;
             if (phoneIndex < phones.Length && ms >= phones[phoneIndex].positionMs) {
-                double cents = Sample(phrase.pitches, ms, phones[phoneIndex].tone * 100)
-                    + Sample(phrase.toneShift, ms, 0);
+                double cents = Sample(phrase.pitches, ms, phones[phoneIndex].tone * 100);
                 f0[i] = 440 * Math.Pow(2, (cents / 100 - 69) / 12);
             }
         }
         return new { protocol = 1, comp_id = voice.comp_id, lang_id = voice.lang_id, notes,
             pitch_curve = new { frame_period_ms = 5, f0, sensitivity = Enumerable.Range(0, frames)
-                .Select(i => (int)Math.Round(Math.Clamp(Sample(Custom("vpbs"), startMs + i * 5, 12), 0, 24))).ToArray() }, controller_curves = controllers };
+                .Select(i => (int)Math.Round(Math.Clamp(Sample(Custom("pbs"), startMs + i * 5, 12), 0, 24))).ToArray() }, controller_curves = controllers };
     }
     private sealed class Voice {
         public string comp_id { get; set; } = "";
@@ -151,15 +149,6 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
             token.ThrowIfCancellationRequested();
             var result = Layout(phrase);
             result.samples = ReadWave(path);
-            // VOL is output gain; backend VEL is consonant speed. Keep distinct.
-            int phoneIndex = 0;
-            double start = result.positionMs - result.leadingMs;
-            for (int i = 0; i < result.samples.Length; i++) {
-                double ms = start + i * 1000.0 / 44100;
-                while (phoneIndex + 1 < phrase.phones.Length && ms >= phrase.phones[phoneIndex + 1].positionMs) phoneIndex++;
-                result.samples[i] *= phrase.phones[phoneIndex].volume;
-            }
-            Renderers.ApplyDynamics(phrase, result);
             progress.Complete(phrase.phones.Length, $"Track {trackNo + 1}: VOCALOID");
             return result;
         } finally { renderGate.Release(); }

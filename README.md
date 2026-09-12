@@ -61,7 +61,7 @@ python openutau-plugin/install.py --data-dir /example/OpenUtau-data
 
 4. 点击 **保存设置 → 刷新外部声库 → 安装 / 更新声库描述**。
 5. 重启 OpenUtau，让生成的声库描述生效；重新打开插件窗口，有效配置时会自动启动桥接，也可点击 **启动桥接**。
-6. 在音轨选择相应声库、**ENUNU 渲染器**和 **Default 音素器**。打开过插件菜单后，插件会通过公开的音轨接口为自己的声库启用完整表情传递；普通 ENUNU 声库仍使用原渲染器。新增的 V6 表情定义作为可撤销操作加入当前工程，保存工程时会保留。
+6. 在音轨选择相应声库、**ENUNU 渲染器**和 **Default 音素器**。打开过插件菜单后，插件会通过公开的音轨接口为自己的声库启用完整表情传递；普通 ENUNU 声库仍使用原渲染器。表情使用后端名称和原生范围：同名覆盖，不同名新增，旧的 V 前缀参数定义移除。此操作可撤销，保存工程时会保留。
 7. 每个音符输入一个 ASCII 拼音音节，例如 `ni3 hao3`，然后编辑音高、播放或导出。
 
 目录选择器也接受 Wine 前缀中的 Linux 路径，保存时转换为 Windows 路径。目录结构检查不保证 API 版本兼容；此示例不会使不兼容或未授权的接口变得可用。
@@ -77,38 +77,35 @@ python openutau-plugin/install.py --data-dir /example/OpenUtau-data
 
 ## 表情参数
 
-一般只需调整音高、亮度（TEN/TENC → BRI）、气声（BRE/BREC）和响度（OpenUtau DYN）。其余参数保留默认值即可。
+通常只需调整音高、BRI（亮度）、BRE（气声）和 DYN（后端动态），其余保留默认值。
 
-下面的完整列表同时包含后端控制器、音符表情和 OpenUtau 输出处理，因此数量较多；它们不是都需要调整，也不都是新增参数。**TEN/TENC 借作 BRI，VEL 保留辅音速度用途。** VDYN 调整后端合成动态，OpenUtau DYN 调整渲染后的响度，两者作用不同。
+按后端名称提供参数，不再借用 TEN/TENC、GEN/GENC、BREC 或 VOIC。同名参数覆盖原定义，不同名参数新增；旧的 `V…` 重复定义移除。DYN 只控制后端，不再额外叠加 OpenUtau 响度处理，VOL 不参与插件输出处理。
+
+OpenUtau 的表情列表由工程统一管理，原有其他参数仍可能出现在菜单中，但插件只使用下表中的参数和音高编辑结果。同名覆盖也会改变该工程其他音轨的表情定义，建议不同渲染器分开使用工程。旧工程的表情数值不会自动换算，升级前保留副本并重新检查曲线。
 
 <details>
-<summary>完整参数映射（含进阶控制）</summary>
+<summary>完整参数（后端原生范围）</summary>
 
-以下为前述假设兼容条件下的映射定义。在钢琴窗的表情选择器选择对应参数；新增项目显示为 `V6 …`。完整通道直接传 JSON，不经过旧 ENUNU 对 VEL 的取整。
+以下为假设兼容条件下的映射定义。除 VEL 为音符数值外，其余表中参数为曲线；OPE、ACC、DEC 在音符起点采样。
 
-| OpenUtau 参数 | 后端参数 | 映射与用途 |
+| 参数 | 后端字段 | 范围 / 默认 |
 | --- | --- | --- |
-| 音符音高、调音、音高点、PITD、颤音 | 音符 `number` + `pitchBend` | OpenUtau 最终音高曲线，5 ms 采样；不额外叠加后端自动颤音 |
-| SHFC 音高偏移曲线 | PIT | 按音分加到最终音高 |
-| VPBS（新增） | `pitchBendSens` / PBS | 0～24，默认 12；改变允许的偏移范围，仍保持 OpenUtau 绝对音高。PBS=0 时有非零音高偏移会报错 |
-| TEN/TENC | `brightness` / BRI | −100→0、0→64、100→127；控制亮度，已借用张力曲线 |
-| GEN 数值 + GENC 曲线 | `character` / Character | 相加后限幅；正 GEN→更低 Character，保留 GEN 正值偏男性的方向，后端范围 −64～63 |
-| BRE 数值 + BREC 曲线 | `breathiness` / BRE | 相加后限制为 0～100，再映射到 0～127；负值限制为 0 |
-| VCLE（新增） | `clearness` / CLE | 0～127，默认 0 |
-| VGWL（新增） | `growl` / GWL | 0～127，默认 0 |
-| VPOR（新增） | `portamento` / POR | 0～127，默认 64；音高过渡时间，最终效果也受显式 PIT 曲线影响 |
-| VAIR（新增） | `air` / AIR | 0～127，默认 0；与 BRE 分开控制 |
-| VEXC（新增） | `exciter` / Exciter | −64～63，默认 0 |
-| VDYN（新增） | `dynamics` / V6 DYN | 0～127，默认 64；直接影响后端合成 |
-| VOI/VOIC | V6 DYN 的倍率 | 0～100%，乘在 VDYN 上；用于衰减，非 V6 独立“voicing”参数 |
-| VEL | 音符 `velocity` | OpenUtau 0～200 映射到后端 0～127，100→64；辅音速度，非音量 |
-| VOPE（新增） | 音符 `exp.opening` | 0～127，默认 127；口腔开度，在每个音符起点采样，非独立 Mouth 效果器偏移 |
-| VACC（新增） | 音符 `exp.accent` | 0～100，默认 50；在音符起点采样 |
-| VDEC（新增） | 音符 `exp.decay` | 0～100，默认 50；在音符起点采样 |
-| OpenUtau DYN | 输出响度包络 | 渲染后由 OpenUtau 调整，和 VDYN 分开 |
-| VOL | 输出音符增益 | 渲染后处理，100 为原响度 |
+| DYN | `dynamics` | 0～127 / 64 |
+| BRI | `brightness` | 0～127 / 64 |
+| BRE | `breathiness` | 0～127 / 0 |
+| CHR | `character` | −64～63 / 0 |
+| PBS | `pitchBendSens` | 0～24 / 12 |
+| CLE | `clearness` | 0～127 / 0 |
+| GWL | `growl` | 0～127 / 0 |
+| POR | `portamento` | 0～127 / 64 |
+| AIR | `air` | 0～127 / 0 |
+| EXC | `exciter` | −64～63 / 0 |
+| VEL | 音符 `velocity` | 0～127 / 64；辅音速度 |
+| OPE | 音符 `exp.opening` | 0～127 / 127 |
+| ACC | 音符 `exp.accent` | 0～100 / 50 |
+| DEC | 音符 `exp.decay` | 0～100 / 50 |
 
-GEN 与 Character 的方向不同；参数含义可参考 [官方参考手册](https://rsc-net.vocaloid.com/assets/pdf_files/bb/VOCALOID_Reference_Manual_ENG.pdf)。数值/曲线映射以本项目代码为准，不保证与编辑器的全部处理链完全相同。
+音符音高、音高点、PITD 和颤音转换为最终音高曲线，按 5 ms 采样，不额外叠加后端自动颤音。PBS 改变允许的偏移范围；PBS=0 且有非零音高偏移时会报错。参数含义可参考 [官方参考手册](https://rsc-net.vocaloid.com/assets/pdf_files/bb/VOCALOID_Reference_Manual_ENG.pdf)，不保证与编辑器的全部处理链完全相同。
 
 在本机已配置的传统声库的相同基线重复渲染对照中，BRI、BRE、Character、CLE、GWL、POR、DYN、AIR、Exciter、Opening、Accent、Decay 均有明确 PCM 差异。完整 OpenUtau Core → ZMQ → Wine 的链路、变速对齐、精确 VEL、缓存复用/失效、停止服务后的及时返回，以及普通声库隔离也有回归检查。已配置声库的基础拼音和音高渲染均通过；此结果不代表任意接口版本或声库都兼容。
 

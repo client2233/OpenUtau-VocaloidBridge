@@ -18,6 +18,6 @@
 - `pitch_curve`：`frame_period_ms`、F0 Hz 数组 `f0`、可选 `sensitivity`（PBS，0..24，默认 12）；PBS 可以是标量或与 F0 等长的数组，0 无法表示非零音高偏移。
 - `controller_curves`：控制器名到 `{frame_period_ms, values}` 的映射。`brightness`、`breathiness`、`clearness`、`growl`、`portamento`、`dynamics`、`air` 为 0..127；`character`、`exciter` 为 −64..63。
 
-适配器将连续曲线量化为控制器事件，压缩连续相同值；不会直接调用 DLL 符号。Python API 来源及代码不由本项目提供。GEN/BRE/BRI 等前端映射见 README。
+适配器将连续曲线量化为控制器事件，压缩连续相同值；不会直接调用 DLL 符号。Python API 来源及代码不由本项目提供。DYN/BRE/BRI 等前端映射见 README。
 
 旧 ENUNU/UST 通道仅传音符、歌词、音高和 UST Velocity。其 VEL 百分比乘以 0.64、取整并限幅；部分 Core 版本在 UST 导出前先取整，完整插件通道不受此限制。

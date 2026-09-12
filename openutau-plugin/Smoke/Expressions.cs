@@ -17,7 +17,7 @@ static class ExpressionSmoke {
         var renderer = (IRenderer)Activator.CreateInstance(type, config, port)!;
         var project = new UProject();
         OpenUtau.Core.Format.Ustx.AddDefaultExpressions(project);
-        foreach (var exp in renderer.GetSuggestedExpressions(null!, null!)) project.RegisterExpression(exp);
+        foreach (var exp in renderer.GetSuggestedExpressions(null!, null!)) project.expressions[exp.abbr] = exp.Clone();
         project.tempos.Clear(); project.tempos.Add(new UTempo { position = 0, bpm = 120 });
         project.tempos.Add(new UTempo { position = 2640, bpm = 90 });
         project.timeAxis.BuildSegments(project);
@@ -36,7 +36,7 @@ static class ExpressionSmoke {
         var note = project.CreateNote(60,480,480); note.lyric = "ni3";
         note.ExtendedDuration = 480; note.phonemeIndexes = [0];
         part.notes.Add(note); project.parts.Add(part);
-        note.SetExpression(project, track, "vel", [130f]);
+        note.SetExpression(project, track, "vel", [83f]);
         note.Validate(new ValidateOptions(), project, track, part);
         var phone = new UPhoneme { position = 480, phoneme = "ni3", Parent = note };
         phone.Validate(new ValidateOptions(), project, track, part, note);
@@ -46,11 +46,10 @@ static class ExpressionSmoke {
             part.curves.RemoveAll(c => c.abbr == abbr);
             part.curves.Add(new UCurve(project.expressions[abbr]) { xs = [480,960], ys = [value,value] });
         }
-        note.SetExpression(project, track, "gen", [10f]);note.SetExpression(project, track, "bre", [10f]);
-        Curve("tenc",100); Curve("genc",40); Curve("brec",40);Curve("vpbs",6); Curve("vdyn",90);
-        Curve("vcle",50); Curve("vgwl",30); Curve("vpor",70);
-        Curve("vair",40); Curve("vexc",20);
-        Curve("vope",100); Curve("vacc",20); Curve("vdec",80);
+        Curve("bri",127); Curve("chr",-32); Curve("bre",64); Curve("pbs",6); Curve("dyn",90);
+        Curve("cle",50); Curve("gwl",30); Curve("por",70);
+        Curve("air",40); Curve("exc",20);
+        Curve("ope",100); Curve("acc",20); Curve("dec",80);
         RenderPhrase Phrase() => (RenderPhrase)typeof(RenderPhrase).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
             .Single(c => c.GetParameters().Length == 4).Invoke([project, track, part, part.phonemes]);
         JsonDocument Payload(RenderPhrase phrase) => JsonDocument.Parse(JsonSerializer.Serialize(
@@ -70,19 +69,23 @@ static class ExpressionSmoke {
         if(data.RootElement.GetProperty("pitch_curve").GetProperty("sensitivity")[frame].GetInt32()!=6) throw new Exception("PBS curve missing");
         var f0 = data.RootElement.GetProperty("pitch_curve").GetProperty("f0");
         if (f0[0].GetDouble() != 0 || Math.Abs(f0[frame].GetDouble()-261.625565) > .01) throw new Exception("Pitch alignment failed");
+        foreach (int value in new[] { 0, 64, 127 }) {
+            Curve("dyn", value);
+            using var check = Payload(Phrase());
+            if(check.RootElement.GetProperty("controller_curves").GetProperty("dynamics").GetProperty("values")[frame].GetInt32()!=value)
+                throw new Exception("Native DYN range was altered by Core conversion");
+        }
+        Curve("dyn", 90);
         using var cancellation = new CancellationTokenSource();
         var audio = renderer.Render(phrase, new Progress(1), 0, cancellation, false).GetAwaiter().GetResult();
         if (audio.samples.Length != (int)Math.Round(f0.GetArrayLength()*5.0/1000*44100) || !audio.samples.Any(x=>Math.Abs(x)>.001)) throw new Exception("Invalid render result");
         var cached = renderer.Render(phrase, new Progress(1), 0, cancellation, false).GetAwaiter().GetResult();
         if (!audio.samples.SequenceEqual(cached.samples)) throw new Exception("Cache changed waveform");
-        note.SetExpression(project, track, "vol", [50f]);
-        var quieter = renderer.Render(Phrase(), new Progress(1), 0, cancellation, false).GetAwaiter().GetResult();
-        if (!quieter.samples.SequenceEqual(audio.samples.Select(x=>x*.5f))) throw new Exception("VOL output gain failed");
-        Curve("tenc",-100);
+        Curve("bri",0);
         var changed = renderer.Render(Phrase(), new Progress(1), 0, cancellation, false).GetAwaiter().GetResult();
-        if (changed.samples.SequenceEqual(quieter.samples)) throw new Exception("BRI edit reused stale cache");
+        if (changed.samples.SequenceEqual(audio.samples)) throw new Exception("BRI edit reused stale cache");
         File.WriteAllText(config + ".service.local.json", JsonSerializer.Serialize(new { Ready = false, Pid = 0 }));
-        Curve("tenc",0);
+        Curve("bri",64);
         var watch = System.Diagnostics.Stopwatch.StartNew();
         try { renderer.Render(Phrase(), new Progress(1), 0, cancellation, false).GetAwaiter().GetResult(); throw new Exception("Stopped bridge accepted uncached request"); }
         catch (InvalidOperationException) { if (watch.Elapsed.TotalSeconds > 2) throw new Exception("Stopped bridge blocked render"); }
@@ -96,6 +99,7 @@ static class ExpressionSmoke {
         void Pump() { int i=0; while(queue.TryDequeue(out var action)) { if (++i>100) throw new Exception("Attachment notification loop"); action(); } }
         var active = manager.Project;
         OpenUtau.Core.Format.Ustx.AddDefaultExpressions(active);
+        active.RegisterExpression(new UExpressionDescriptor("legacy dynamics", "vdyn", 0, 127, 64) { type=UExpressionType.Curve });
         var owned = new UTrack { Singer=singer, RendererSettings=new URenderSettings { renderer="ENUNU", Renderer=new EnunuRenderer() } };
         var foreignLocation=Path.Combine(root,"foreign");Directory.CreateDirectory(foreignLocation);
         foreach(var file in Directory.EnumerateFiles(location).Where(p=>Path.GetFileName(p)!="bridge.voice.json"))
@@ -110,10 +114,15 @@ static class ExpressionSmoke {
             throw new Exception("Attachment replaced an unrelated renderer or failed to activate");
         if(renderer.GetSuggestedExpressions(singer,owned.RendererSettings).Any(e=>!active.expressions.ContainsKey(e.abbr)))
             throw new Exception("Expression definitions not installed");
+        if(active.expressions["dyn"].defaultValue != 64 || active.expressions["dyn"].min != 0
+            || active.expressions["vel"].max != 127 || active.expressions["bre"].type != UExpressionType.Curve
+            || active.expressions["dec"].type != UExpressionType.Curve
+            || active.expressions.Keys.Any(k => k == "vdyn" || k == "vcle"))
+            throw new Exception("Same-name replacement or duplicate retirement failed");
         manager.Undo();Pump();
-        if(active.expressions.ContainsKey("vcle")) throw new Exception("Expression installation fought undo");
+        if(active.expressions.ContainsKey("cle")) throw new Exception("Expression installation fought undo");
         manager.Redo();Pump();
-        if(!active.expressions.ContainsKey("vcle")) throw new Exception("Expression redo failed");
+        if(!active.expressions.ContainsKey("cle")) throw new Exception("Expression redo failed");
         var added = new UTrack { Singer=singer,RendererSettings=new URenderSettings { renderer="ENUNU",Renderer=new EnunuRenderer() } };
         active.tracks.Add(added);manager.ExecuteCmd(new ValidateProjectNotification());Pump();
         if(added.RendererSettings.Renderer.GetType()!=type) throw new Exception("New bridge track was not attached");
@@ -121,6 +130,6 @@ static class ExpressionSmoke {
         if(added.RendererSettings.Renderer.GetType()!=typeof(EnunuRenderer)) throw new Exception("Switching to foreign singer retained bridge renderer");
         Console.WriteLine("PASS: public renderer attachment, foreign-track isolation, expression undo/redo and new-track activation");
         Console.WriteLine("PASS: installed Core builds native phrases with all controller/note curves, precise VEL, tempo map and aligned pitch");
-        Console.WriteLine("PASS: full socket rendering, WAV size, cache reuse/invalidation, VOL gain and stopped-backend failure");
+        Console.WriteLine("PASS: full socket rendering, WAV size, cache reuse/invalidation, native controller ranges and stopped-backend failure");
     }
 }
