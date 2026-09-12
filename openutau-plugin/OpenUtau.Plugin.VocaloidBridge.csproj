@@ -8,5 +8,6 @@
   <ItemGroup>
     <Compile Remove="Smoke/**/*.cs" />
     <Reference Include="OpenUtau.Core"><HintPath>$(OpenUtauDirectory)/OpenUtau.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="NetMQ"><HintPath>$(OpenUtauDirectory)/NetMQ.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 </Project>

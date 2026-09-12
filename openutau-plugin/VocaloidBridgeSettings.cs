@@ -6,7 +6,7 @@ using OpenUtau.Core.Ustx;
 
 namespace OpenUtau.Plugin.VocaloidBridge;
 
-// Loaded by stock OpenUtau's external BatchEdit discovery. No renderer patch.
+// Loaded by stock BatchEdit discovery; enables the public track renderer adapter.
 public sealed class VocaloidBridgeSettings : BatchEdit {
     private static readonly HashSet<string> watchedConfigs = new();
 
@@ -17,6 +17,7 @@ public sealed class VocaloidBridgeSettings : BatchEdit {
         var path = Path.Combine(folder, "bridge-launcher.json");
         var settings = JsonSerializer.Deserialize<LauncherSettings>(File.ReadAllText(path))
             ?? throw new InvalidDataException("Invalid bridge-launcher.json");
+        BridgeAttachment.Enable(settings.BackendConfig, docManager);
         WatchBackend(settings.BackendConfig, docManager);
         var script = Path.Combine(settings.ProjectDirectory, "enunu", "configure.py");
         if (!File.Exists(script)) throw new FileNotFoundException("VOCALOID bridge settings script not found", script);
@@ -33,7 +34,7 @@ public sealed class VocaloidBridgeSettings : BatchEdit {
         info.ArgumentList.Add(Environment.ProcessId.ToString());
         using var child = Process.Start(info)
             ?? throw new InvalidOperationException("Unable to start VOCALOID bridge settings");
-        // Return immediately, leaving the piano roll editable. No score commands.
+        // Leave the piano roll editable while the settings helper runs. Notes are unchanged.
     }
 
     private static void WatchBackend(string config, DocManager manager) {

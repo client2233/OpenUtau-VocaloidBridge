@@ -63,17 +63,27 @@ def synthe(config,path,output):
     f0=np.load(root/'editorf0.npy').tolist()
     request=dict(protocol=1,comp_id=voice['comp_id'],lang_id=voice['lang_id'],notes=notes,
                  pitch_curve=dict(frame_period_ms=PERIOD,f0=f0))
-    with tempfile.TemporaryDirectory(prefix='v6-enu-') as folder:
+    return render_request(config, request, output)
+
+
+def render_request(config, request, output):
+    # Complete immutable OpenUtau payload; no lossy UST conversion.
+    curve = request['pitch_curve']
+    count = round(len(curve['f0']) * float(curve['frame_period_ms']) / 1000 * 44100)
+    if count <= 0: raise ValueError('Empty render request')
+    with tempfile.TemporaryDirectory(prefix='v6-render-') as folder:
         temp=Path(folder); (temp/'request.json').write_text(json.dumps(request))
         invoke(config,'render',temp/'request.json',temp/'raw.wav')
         with wave.open(str(temp/'raw.wav')) as wav:
             assert wav.getframerate()==44100 and wav.getnchannels()==1 and wav.getsampwidth()==2
-            count=round(len(f0)*PERIOD/1000*44100)
             data=wav.readframes(count)
         data += b'\0' * max(0,count*2-len(data))
         Path(output).parent.mkdir(parents=True,exist_ok=True)
-        with wave.open(str(output),'wb') as wav:
+        destination = Path(output)
+        pending = destination.with_name(destination.name + '.installing')
+        with wave.open(str(pending),'wb') as wav:
             wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(44100);wav.writeframes(data)
+        pending.replace(destination)
     return dict(path_wav=output)
 
 
@@ -92,9 +102,10 @@ if __name__=='__main__':
             request=socket.recv_json()
             try:
                 command=request[0]
-                if command=='ver_check':result=dict(name='VOCALOID Wine Bridge',version='1',author='Local adapter')
+                if command=='ver_check':result=dict(name='VOCALOID Wine Bridge',version='2',author='Local adapter')
                 elif command=='acoustic':result=acoustic(request[1])
                 elif command=='synthe':result=synthe(config,request[1],request[2])
+                elif command=='render':result=render_request(config,json.loads(Path(request[1]).read_text()),request[2])
                 else:raise ValueError('Unsupported ENUNU command: '+command)
                 socket.send_json(dict(error=None,result=result));print('PASS',command,flush=True)
             except Exception as error:

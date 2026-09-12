@@ -10,7 +10,8 @@ AssemblyLoadContext.Default.Resolving += (_, name) => {
     var path = Path.Combine(Environment.GetEnvironmentVariable("OPENUTAU_DIR") ?? "/opt/openutau", name.Name + ".dll");
     return File.Exists(path) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(path) : null;
 };
-Run(args[0]);
+if (args[0] == "--expressions") ExpressionSmoke.Run(args[1], args[2], args[3], int.Parse(args[4]), args[5]);
+else Run(args[0]);
 
 [MethodImpl(MethodImplOptions.NoInlining)]
 static void Run(string logFile) {

@@ -56,6 +56,13 @@ def make_sequence(request):
         note['singingSkill'] = {'duration': 0, 'weight': {'pre': 64, 'post': 64}}
         note['exp'] = {'accent': 50, 'decay': 50, 'bendDepth': 0,
                        'bendLength': 0, 'opening': 127}
+        for name, limits in {'opening': (0, 127), 'accent': (0, 100), 'decay': (0, 100)}.items():
+            value = source.get('expressions', {}).get(name, note['exp'][name])
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or not limits[0] <= value <= limits[1]:
+                raise ValueError('Invalid note expression: ' + name)
+            note['exp'][name] = round(value)
+        if set(source.get('expressions', {})) - {'opening', 'accent', 'decay'}:
+            raise ValueError('Unsupported note expression')
         part['notes'].append(note)
         previous_end = position + duration
     part['duration'] = previous_end + 1920
@@ -66,24 +73,62 @@ def make_sequence(request):
         if not math.isfinite(period) or period <= 0:
             raise ValueError('Invalid pitch frame period')
         events = {}
+        sensitivity = curve.get('sensitivity', 12)
+        sensitivities = sensitivity if isinstance(sensitivity, list) else [sensitivity] * len(curve['f0'])
+        if len(sensitivities) != len(curve['f0']):
+            raise ValueError('PBS/F0 frame counts differ')
+        pbs_events = {}
+        previous_pbs = None
         index = 0
         for frame, frequency in enumerate(curve['f0']):
             if not math.isfinite(frequency) or frequency < 0:
                 raise ValueError('Invalid F0 value')
+            pbs = sensitivities[frame]
+            if not isinstance(pbs, (int, float)) or not math.isfinite(pbs) or not 0 <= pbs <= 24 or pbs != round(pbs):
+                raise ValueError('Invalid pitch bend sensitivity')
             position_tick = round(frame * period * .96)
+            if pbs != previous_pbs:
+                pbs_events[position_tick] = pbs
+                previous_pbs = pbs
             while index < len(notes) and position_tick >= part['notes'][index]['pos'] + part['notes'][index]['duration']:
                 index += 1
             bend = 0
             if index < len(notes) and position_tick >= part['notes'][index]['pos'] and frequency > 0:
                 deviation = 69 + 12 * math.log2(frequency / 440) - notes[index]['tone']
-                bend = round(deviation / 12 * 8192)
+                if pbs == 0 and abs(deviation) > .0001:
+                    raise ValueError('PBS 0 cannot represent the edited pitch deviation')
+                bend = round(deviation / pbs * 8192) if pbs else 0
                 if not -8192 <= bend <= 8191:
-                    raise ValueError('Pitch deviation exceeds 12-semitone range')
+                    raise ValueError('Pitch deviation exceeds the selected PBS range')
             events[position_tick] = bend
         part['controllers'] = [
-            {'name': 'pitchBendSens', 'events': [{'pos': 0, 'value': 12}]},
+            {'name': 'pitchBendSens', 'events': [{'pos': pos, 'value': value} for pos, value in sorted(pbs_events.items())]},
             {'name': 'pitchBend', 'events': [{'pos': pos, 'value': value} for pos, value in sorted(events.items())]},
         ]
+    # Typed controller curves, independent of the optional pitch curve.
+    controllers = part.setdefault('controllers', [])
+    limits = {name: (0, 127) for name in ('brightness', 'breathiness', 'clearness',
+              'growl', 'portamento', 'dynamics', 'air')}
+    limits.update(character=(-64, 63), exciter=(-64, 63))
+    for name, data in request.get('controller_curves', {}).items():
+        if name not in limits:
+            raise ValueError('Unsupported controller: ' + name)
+        period = float(data['frame_period_ms'])
+        if not math.isfinite(period) or period <= 0:
+            raise ValueError('Invalid controller frame period')
+        events = {}
+        previous = None
+        for frame, value in enumerate(data['values']):
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or not limits[name][0] <= value <= limits[name][1]:
+                raise ValueError('Invalid controller value: ' + name)
+            value = round(value)
+            if value != previous:
+                events[round(frame * period * .96)] = value
+                previous = value
+        if not events:
+            raise ValueError('Empty controller curve: ' + name)
+        controllers.append({'name': name, 'events': [
+            {'pos': pos, 'value': value} for pos, value in sorted(events.items())]})
     return seq
 
 

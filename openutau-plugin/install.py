@@ -1,4 +1,4 @@
-"""Install the managed settings command into stock OpenUtau's Plugins folder."""
+"""Install the managed settings/renderer adapter into stock OpenUtau's Plugins folder."""
 import argparse
 import json
 import os
