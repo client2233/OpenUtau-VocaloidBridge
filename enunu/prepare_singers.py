@@ -15,7 +15,13 @@ old_tables = {
     'lyrics.table': '\n'.join(f'{x} {x}' for x in ('la', 'a', 'i', 'u', 'e', 'o')) + '\n',
     'phonemes.hed': 'QS "phonemes" {*-la+*,*-a+*,*-i+*,*-u+*,*-e+*,*-o+*}\n',
 }
-lyrics = aliases()
+previous_lyrics = aliases()
+for name, content in {
+    'lyrics.table': '\n'.join(f'{x} {x}' for x in previous_lyrics) + '\n',
+    'phonemes.hed': 'QS "phonemes" {' + ','.join(f'*-{x}+*' for x in previous_lyrics) + '}\n',
+}.items():
+    old_tables[name] = (old_tables[name], content)
+lyrics = previous_lyrics + ['-']
 root = Path(args.data_dir).expanduser().resolve() / 'Singers'
 voices = json.loads(Path(args.voices).read_text(encoding='utf-8'))['voices']
 for voice in voices:
@@ -37,7 +43,7 @@ for voice in voices:
         if path.exists():
             current = path.read_text(encoding='utf-8')
             if current != content:
-                if not args.update or current != old_tables.get(name):
+                if not args.update or current not in old_tables.get(name, ()):
                     raise ValueError(f'Existing descriptor differs, refusing overwrite: {path}')
                 backup = path.with_name(path.name + '.before-pinyin')
                 if not backup.exists(): backup.write_text(current, encoding='utf-8')

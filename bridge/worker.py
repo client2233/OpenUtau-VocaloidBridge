@@ -37,7 +37,10 @@ def make_sequence(request):
         # can make adjacent frame-based notes overlap by one tick.
         duration = round((source['position_ms'] + source['duration_ms']) * .96) - position
         tone = source['tone']
-        phoneme = source.get('phoneme')
+        slur = source.get('lyric', '').strip() == '-'
+        if slur and (not part['notes'] or position != previous_end):
+            raise ValueError('A slur must immediately follow a sung note')
+        phoneme = '-' if slur else source.get('phoneme')
         if phoneme is None and lang == 4:
             phoneme = phonemes(source.get('lyric', ''))
         if position < previous_end or duration < 1 or not 0 <= tone <= 127:
@@ -47,7 +50,7 @@ def make_sequence(request):
         note = copy.deepcopy(prototype)
         note.update(pos=position, duration=duration, number=tone,
                     lyric=source.get('lyric', phoneme), phoneme=phoneme,
-                    langID=lang, isProtected=True)
+                    langID=lang, isProtected=not slur)
         velocity = source.get('velocity', 64)
         if not isinstance(velocity, (int, float)) or not math.isfinite(velocity) or not 0 <= velocity <= 127:
             raise ValueError('Invalid note velocity')

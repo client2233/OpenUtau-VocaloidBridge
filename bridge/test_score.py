@@ -49,3 +49,18 @@ for velocity in (-1,128,float('nan')):
     except ValueError: pass
     else: raise AssertionError('Invalid velocity accepted')
 print('PASS: note velocity forwarding and validation')
+
+request.pop('pitch_curve', None)
+request['notes'] = [dict(position_ms=i*500, duration_ms=500, tone=60+i, lyric=lyric)
+                    for i, lyric in enumerate(('qing', '-', '-'))]
+slurs = make_sequence(request)['tracks'][0]['parts'][0]['notes']
+assert [n['lyric'] for n in slurs] == ['qing', '-', '-']
+assert [n['phoneme'] for n in slurs][1:] == ['-', '-']
+assert slurs[0]['isProtected'] and all(not n['isProtected'] for n in slurs[1:])
+for invalid in ([request['notes'][1]],
+                [request['notes'][0], dict(position_ms=750, duration_ms=500, tone=62, lyric='-')]):
+    request['notes'] = invalid
+    try: make_sequence(request)
+    except ValueError: pass
+    else: raise AssertionError('Leading or disconnected slur accepted')
+print('PASS: native slurs, chained slurs and leading/rest slur rejection')

@@ -15,6 +15,7 @@
 请求包含：
 
 - `notes`：`position_ms`、`duration_ms`、`tone`、拼音 `lyric`、可选 `phoneme`、`velocity`（0..127，默认 64）。可选 `expressions` 支持 `opening`（0..127）、`accent`/`decay`（0..100）。
+  连音歌词使用 `-`；必须紧接前一个发声音符。适配器传递原生 `phoneme="-"` 并关闭该音符的音素保护，不把它转换成拼音或重复声母。
 - `pitch_curve`：`frame_period_ms`、F0 Hz 数组 `f0`、可选 `sensitivity`（PBS，0..24，默认 12）；PBS 可以是标量或与 F0 等长的数组，0 无法表示非零音高偏移。
 - `controller_curves`：控制器名到 `{frame_period_ms, values}` 的映射。`brightness`、`breathiness`、`clearness`、`growl`、`portamento`、`dynamics`、`air` 为 0..127；`character`、`exciter` 为 −64..63。
 
