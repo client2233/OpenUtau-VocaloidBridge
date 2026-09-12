@@ -7,7 +7,6 @@ import os
 import sys
 import tempfile
 import traceback
-from ctypes import c_void_p
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -134,10 +133,8 @@ def run(args):
         vsm = VIS_VSM()
         if not vsm.Create() or not vsm.SetVDM(vdm.GetPointer()):
             raise RuntimeError('VSM initialization failed')
-        setter = vsm.api.VIS_VSM_WIVSMSequenceManager_setDSEManager
-        setter.argtypes = [c_void_p, c_void_p]
-        setter.restype = None
-        setter(vsm.GetPointer(), dse.GetPointer())
+        if not vsm.SetDSE(dse.GetPointer()):
+            raise RuntimeError('DSE manager binding failed')
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'sequence.json'
             path.write_text(json.dumps(score, ensure_ascii=False), encoding='utf-8')
