@@ -1,6 +1,8 @@
 """ENUNU external-wave adapter; real synthesis is performed by VOCALOID."""
 import argparse
 import json
+import signal
+import time
 from pathlib import Path
 import sys
 import tempfile
@@ -8,7 +10,7 @@ import wave
 import numpy as np
 import zmq
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
-from host import invoke
+from host import invoke, enable_persistent, close_worker
 
 PERIOD = 5.0
 
@@ -96,10 +98,15 @@ if __name__=='__main__':
         for port in ports: socket.bind(f'tcp://127.0.0.1:{port}')
     except Exception:
         socket.close();ctx.term();raise
+    enable_persistent()
+    def stop_service(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop_service)
     print(f'ENUNU VOCALOID bridge ready at {ports}',flush=True)
     try:
         while True:
             request=socket.recv_json()
+            started = time.monotonic()
             try:
                 command=request[0]
                 if command=='ver_check':result=dict(name='VOCALOID Wine Bridge',version='2',author='Local adapter')
@@ -107,9 +114,11 @@ if __name__=='__main__':
                 elif command=='synthe':result=synthe(config,request[1],request[2])
                 elif command=='render':result=render_request(config,json.loads(Path(request[1]).read_text()),request[2])
                 else:raise ValueError('Unsupported ENUNU command: '+command)
-                socket.send_json(dict(error=None,result=result));print('PASS',command,flush=True)
+                socket.send_json(dict(error=None,result=result));print('PASS',command,f'{time.monotonic()-started:.3f}s',flush=True)
             except Exception as error:
                 socket.send_json(dict(error=str(error),result={}));print('ERROR',str(error),flush=True)
     except KeyboardInterrupt:
         pass
-    finally:socket.close();ctx.term()
+    finally:
+        close_worker()
+        socket.close();ctx.term()

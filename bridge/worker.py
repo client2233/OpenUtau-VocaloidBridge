@@ -135,7 +135,7 @@ def make_sequence(request):
     return seq
 
 
-def run(args):
+def run(args, session=None):
     api = Path(args.api_dir).resolve()
     if not (api/'v6api/__init__.py').is_file():
         raise ValueError('The selected API directory must contain v6api/__init__.py')
@@ -154,11 +154,16 @@ def run(args):
         raise RuntimeError('Cannot configure DLL directory')
     vdm, dse, vsm, seq = None, None, None, None
     initialized = False
+    if session is not None:
+        vdm, dse, vsm = (session.get(key) for key in ('vdm', 'dse', 'vsm'))
+        initialized = session.get('initialized', False)
     try:
-        vdm = VIS_VDM()
-        status = vdm.Create()
-        if status.value != 0 or not vdm.GetPointer():
-            raise RuntimeError(f'VDM initialization status {status.value}')
+        if vdm is None:
+            vdm = VIS_VDM()
+            if session is not None: session['vdm'] = vdm
+            status = vdm.Create()
+            if status.value != 0 or not vdm.GetPointer():
+                raise RuntimeError(f'VDM initialization status {status.value}')
         if args.command == 'list':
             reader = VIS_VoiceBank()
             result = []
@@ -178,15 +183,20 @@ def run(args):
         output = Path(args.output).resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
         output.unlink(missing_ok=True)
-        dse = VIS_DSE()
-        if not dse.Create() or not dse.Initialize(vdm.GetPointer()):
-            raise RuntimeError('DSE initialization failed')
-        initialized = True
-        vsm = VIS_VSM()
-        if not vsm.Create() or not vsm.SetVDM(vdm.GetPointer()):
-            raise RuntimeError('VSM initialization failed')
-        if not vsm.SetDSE(dse.GetPointer()):
-            raise RuntimeError('DSE manager binding failed')
+        if dse is None:
+            dse = VIS_DSE()
+            if session is not None: session['dse'] = dse
+            if not dse.Create() or not dse.Initialize(vdm.GetPointer()):
+                raise RuntimeError('DSE initialization failed')
+            initialized = True
+            if session is not None: session['initialized'] = True
+        if vsm is None:
+            vsm = VIS_VSM()
+            if session is not None: session['vsm'] = vsm
+            if not vsm.Create() or not vsm.SetVDM(vdm.GetPointer()):
+                raise RuntimeError('VSM initialization failed')
+            if not vsm.SetDSE(dse.GetPointer()):
+                raise RuntimeError('DSE manager binding failed')
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'sequence.json'
             path.write_text(json.dumps(score, ensure_ascii=False), encoding='utf-8')
@@ -203,25 +213,55 @@ def run(args):
     finally:
         if seq is not None:
             seq.CloseSequence()
-        if vsm is not None and vsm.GetPointer():
-            vsm.Destroy()
-        if dse is not None and dse.GetPointer():
-            if initialized:
-                dse.Terminate()
-            dse.Destroy()
-        if vdm is not None and vdm.GetPointer():
-            vdm.Destroy()
+        if session is None:
+            close_session(dict(vdm=vdm, dse=dse, vsm=vsm, initialized=initialized))
+
+
+def close_session(session):
+    vsm, dse, vdm = (session.get(key) for key in ('vsm', 'dse', 'vdm'))
+    try:
+        if vsm is not None and vsm.GetPointer(): vsm.Destroy()
+    finally:
+        try:
+            if dse is not None and dse.GetPointer():
+                if session.get('initialized'): dse.Terminate()
+                dse.Destroy()
+        finally:
+            if vdm is not None and vdm.GetPointer(): vdm.Destroy()
+            session.clear()
+
+
+def serve(args):
+    session = {}
+    try:
+        for line in sys.stdin:
+            try:
+                request = json.loads(line)
+                if request.get('command') == 'shutdown': break
+                args.command = 'render'
+                args.request, args.output = request['request'], request['output']
+                reply = run(args, session)
+            except Exception as error:
+                traceback.print_exc(file=sys.stderr)
+                close_session(session)
+                reply = dict(ok=False, error=str(error))
+            print(json.dumps(reply, ensure_ascii=True), flush=True)
+    finally:
+        close_session(session)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['list', 'render'])
+    parser.add_argument('command', choices=['list', 'render', 'serve'])
     parser.add_argument('--api-dir', required=True)
     parser.add_argument('--vocaloid-dir', required=True)
     parser.add_argument('--common-dir', required=True)
     parser.add_argument('--request')
     parser.add_argument('--output')
     args = parser.parse_args()
+    if args.command == 'serve':
+        serve(args)
+        sys.exit(0)
     try:
         print(json.dumps(run(args), ensure_ascii=True), flush=True)
     except Exception as error:

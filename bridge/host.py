@@ -5,11 +5,76 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import queue
+import threading
+import tempfile
 
 
 def windows_path(path):
     # The default Wine Z: mapping exposes the Linux filesystem.
     return 'Z:' + str(Path(path).resolve()).replace('/', '\\')
+
+
+_persistent = False
+_worker = None
+
+
+def enable_persistent():
+    global _persistent
+    _persistent = True
+
+
+def close_worker():
+    global _worker
+    if _worker is not None:
+        _worker.close()
+        _worker = None
+
+
+class Worker:
+    def __init__(self, argv, env):
+        self.log = tempfile.TemporaryFile(mode='w+t')
+        self.replies = queue.Queue()
+        try:
+            self.process = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=self.log, text=True, bufsize=1)
+        except Exception:
+            self.log.close()
+            raise
+        def read():
+            try:
+                for line in self.process.stdout:
+                    try: reply = json.loads(line)
+                    except json.JSONDecodeError: continue
+                    if isinstance(reply, dict) and 'ok' in reply: self.replies.put(reply)
+            finally: self.replies.put(None)
+        threading.Thread(target=read, daemon=True).start()
+
+    def render(self, request, output, timeout):
+        self.process.stdin.write(json.dumps(dict(request=windows_path(request), output=windows_path(output))) + '\n')
+        self.process.stdin.flush()
+        try: reply = self.replies.get(timeout=timeout)
+        except queue.Empty: raise TimeoutError('Wine worker render timed out')
+        if reply is None:
+            self.log.seek(0)
+            raise RuntimeError('Wine worker exited: ' + self.log.read()[-2000:])
+        if not reply.get('ok'): raise RuntimeError(reply.get('error', 'Render failed'))
+        return reply
+
+    def close(self):
+        try:
+            if self.process.poll() is None:
+                try:
+                    self.process.stdin.write('{"command":"shutdown"}\n')
+                    self.process.stdin.flush()
+                    self.process.wait(timeout=3)
+                except (OSError, subprocess.TimeoutExpired):
+                    self.process.kill()
+                    self.process.wait(timeout=3)
+        finally:
+            self.process.stdin.close()
+            self.process.stdout.close()
+            self.log.close()
 
 
 def invoke(config_path, command, request=None, output=None):
@@ -29,6 +94,20 @@ def invoke(config_path, command, request=None, output=None):
             raise ValueError('Render requires request and output paths')
         argv += ['--request', windows_path(request), '--output', windows_path(output)]
     env = dict(os.environ, WINEPREFIX=str(prefix), WINEDEBUG='-all')
+    if _persistent and command == 'render':
+        global _worker
+        signature = json.dumps(config, sort_keys=True)
+        if _worker is not None and _worker.signature != signature: close_worker()
+        if _worker is None:
+            worker_argv = argv[:3] + ['serve'] + argv[4:]
+            worker_argv = worker_argv[:worker_argv.index('--request')]
+            _worker = Worker(worker_argv, env)
+            _worker.signature = signature
+        try:
+            return _worker.render(request, output, config.get('timeout_seconds', 120))
+        except Exception:
+            close_worker()
+            raise
     result = subprocess.run(argv, env=env, capture_output=True, text=True,
                             timeout=config.get('timeout_seconds', 120))
     if result.stderr:
