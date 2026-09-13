@@ -109,10 +109,13 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
     }
 
     public Task<RenderResult> Render(RenderPhrase phrase, Progress progress, int trackNo,
-            CancellationTokenSource cancellation, bool isPreRender, RenderPhraseEvents? events = null) => Task.Run(async () => {
+            CancellationTokenSource cancellation, bool isPreRender, RenderPhraseEvents? events = null) {
         var token = cancellation.Token;
-        await renderGate.WaitAsync(token);
+        return Task.Run(async () => {
+        bool acquired = false;
         try {
+            await renderGate.WaitAsync(token);
+            acquired = true;
             token.ThrowIfCancellationRequested();
             var request = JsonSerializer.Serialize(CreateRequest(phrase));
             // Include both the complete expression payload and backend settings;
@@ -151,8 +154,13 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
             result.samples = ReadWave(path);
             progress.Complete(phrase.phones.Length, $"Track {trackNo + 1}: VOCALOID");
             return result;
-        } finally { renderGate.Release(); }
-    });
+        } catch (OperationCanceledException) when (token.IsCancellationRequested) {
+            // Match native ENUNU: superseded renders complete without audio.
+            // Older Core waits synchronously and reports canceled Tasks as failures.
+            return new RenderResult();
+        } finally { if (acquired) renderGate.Release(); }
+        });
+    }
 
     private bool BackendReady() {
         try {

@@ -148,3 +148,9 @@ python3 openutau-plugin/test_renderer.py --dotnet /example/dotnet --real
 ## 许可证
 
 项目代码使用 [LGPL 2.1](LICENSE)。第三方依赖和外部 API 的许可独立于本项目，见 [THIRD_PARTY.md](THIRD_PARTY.md) 和 [LEGAL.md](LEGAL.md)。
+
+### 歌手图片
+
+在桥接设置中先安装声库描述，再在歌手列表中选择歌手，点击“设置歌手图片”选择本地 PNG 或 JPEG。图片复制到该歌手的描述目录，通过 OpenUtau 原生 `image` 和 `portrait` 字段显示头像和立绘。重启 OpenUtau 后生效，更新声库描述会保留图片设置。请使用有权使用的图片；项目不提供歌手图片。
+
+安装／更新声库描述时，会在所选 Wine 前缀和公共资源目录中按歌手 ID 查找本机 `setup.bmp` 图片并自动设置。已有手动图片会保留。安装资源图片可能与编辑器头像不同；找不到图片时可手动选择。本项目不包含这些图片。

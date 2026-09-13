@@ -42,7 +42,10 @@ for voice in voices:
         path = folder / name
         if path.exists():
             current = path.read_text(encoding='utf-8')
-            if current != content:
+            compared = current
+            if name == 'character.yaml':
+                compared = '\n'.join(line for line in current.splitlines() if not line.startswith(('image:', 'portrait:'))) + '\n'
+            if compared != content:
                 if not args.update or current not in old_tables.get(name, ()):
                     raise ValueError(f'Existing descriptor differs, refusing overwrite: {path}')
                 backup = path.with_name(path.name + '.before-pinyin')

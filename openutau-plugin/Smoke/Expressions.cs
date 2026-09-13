@@ -77,6 +77,21 @@ static class ExpressionSmoke {
         }
         Curve("dyn", 90);
         using var cancellation = new CancellationTokenSource();
+        using (var canceled = new CancellationTokenSource()) {
+            canceled.Cancel();
+            var task = renderer.Render(phrase, new Progress(1), 0, canceled, false);
+            task.Wait(); // Same wait used by stock RenderEngine; must not throw.
+            if (!task.IsCompletedSuccessfully || task.Result.samples?.Length > 0) throw new Exception("Canceled render failed");
+        }
+        var gate = (SemaphoreSlim)type.GetField("renderGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        gate.Wait();
+        try {
+            using var queued = new CancellationTokenSource();
+            var task = renderer.Render(phrase, new Progress(1), 0, queued, false);
+            queued.Cancel();
+            if (!task.Wait(TimeSpan.FromSeconds(2)) || !task.IsCompletedSuccessfully) throw new Exception("Queued cancellation failed");
+        } finally { gate.Release(); }
+        Console.WriteLine("PASS: canceled and queued renders survive stock Core Task.Wait; subsequent render retains semaphore");
         var audio = renderer.Render(phrase, new Progress(1), 0, cancellation, false).GetAwaiter().GetResult();
         if (audio.samples.Length != (int)Math.Round(f0.GetArrayLength()*5.0/1000*44100) || !audio.samples.Any(x=>Math.Abs(x)>.001)) throw new Exception("Invalid render result");
         var cached = renderer.Render(phrase, new Progress(1), 0, cancellation, false).GetAwaiter().GetResult();

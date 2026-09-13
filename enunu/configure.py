@@ -16,6 +16,7 @@ from tkinter.scrolledtext import ScrolledText
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'bridge'))
+from singer_image import set_image, import_installed_images
 from host import invoke
 from settings import native_directory, save_json, validate
 
@@ -60,7 +61,7 @@ class SettingsWindow:
                 self.controls.append(button)
         actions = ttk.Frame(frame)
         actions.grid(row=9, column=0, columnspan=3, sticky='w', pady=(12,8))
-        for label, command in [('保存设置', self.save), ('刷新外部声库', self.refresh), ('安装 / 更新声库描述', self.install)]:
+        for label, command in [('保存设置', self.save), ('刷新外部声库', self.refresh), ('安装 / 更新声库描述', self.install), ('设置歌手图片', self.choose_image)]:
             button = ttk.Button(actions, text=label, command=command)
             button.pack(side='left', padx=(0,8)); self.controls.append(button)
         self.voice_list = tk.Listbox(frame, height=4)
@@ -115,7 +116,21 @@ class SettingsWindow:
             return True
         except Exception as error: self.error(error); return False
 
+    def choose_image(self):
+        selected = self.voice_list.curselection()
+        if not selected:
+            messagebox.showinfo("歌手图片", "请先在列表中选择一个歌手", parent=self.root)
+            return
+        source = filedialog.askopenfilename(parent=self.root, title="选择歌手图片", filetypes=[("图片", "*.png *.jpg *.jpeg")])
+        if not source: return
+        try:
+            set_image(self.fields["data_dir"].get(), self.listed_voices[selected[0]]["name"], source)
+            self.status.set("图片已设置，请重启 OpenUtau 加载头像和立绘")
+        except Exception as error:
+            messagebox.showerror("歌手图片", str(error), parent=self.root)
+
     def show_voices(self,voices):
+        self.listed_voices = voices
         self.voice_list.delete(0,'end')
         for voice in voices:
             self.voice_list.insert('end',voice['name']+'   '+voice['comp_id'])
@@ -153,7 +168,8 @@ class SettingsWindow:
             result = subprocess.run([sys.executable,str(ROOT/'enunu/prepare_singers.py'),
                 '--voices',str(self.voices),'--data-dir',str(data),'--update'],capture_output=True,text=True,timeout=30)
             if result.returncode: raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-            return result.stdout, voices
+            count = import_installed_images(data, voices, json.loads(self.config.read_text(encoding="utf-8")))
+            return result.stdout + f"\n自动导入 {count} 个本机歌手图片\n", voices
         def done(result):
             output, voices = result
             self.show_voices(voices)
