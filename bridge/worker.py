@@ -10,6 +10,7 @@ import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from bridge.japanese import phonemes as japanese_phonemes
 from bridge.pinyin import phonemes
 
 
@@ -31,6 +32,7 @@ def make_sequence(request):
     part['voice'] = {'compID': comp, 'langID': lang}
     part['notes'] = []
     previous_end = 0
+    previous_vowel = None
     for source in notes:
         position = round(source['position_ms'] * .96)
         # Quantize absolute endpoints together; rounding the duration separately
@@ -41,8 +43,18 @@ def make_sequence(request):
         if slur and (not part['notes'] or position != previous_end):
             raise ValueError('A slur must immediately follow a sung note')
         phoneme = '-' if slur else source.get('phoneme')
-        if phoneme is None and lang == 4:
-            phoneme = phonemes(source.get('lyric', ''))
+        if phoneme is None:
+            if lang == 4:
+                phoneme = phonemes(source.get('lyric', ''))
+            elif lang == 0:
+                if source.get('lyric', '').strip() == 'ー':
+                    if previous_vowel is None or position != previous_end:
+                        raise ValueError('Japanese long mark must immediately follow a vowel note')
+                    phoneme = previous_vowel
+                else:
+                    phoneme = japanese_phonemes(source.get('lyric', ''))
+            else:
+                raise ValueError('Unsupported lyric language; supply explicit phoneme strings')
         if position < previous_end or duration < 1 or not 0 <= tone <= 127:
             raise ValueError('Invalid or overlapping note timing/pitch')
         if not isinstance(phoneme, str) or not phoneme.strip():
@@ -68,6 +80,9 @@ def make_sequence(request):
             raise ValueError('Unsupported note expression')
         part['notes'].append(note)
         previous_end = position + duration
+        if phoneme != '-':
+            last = phoneme.split()[-1]
+            previous_vowel = last if last in ('a', 'i', 'M', 'e', 'o') else None
     part['duration'] = previous_end + 1920
     seq['masterTrack']['loop'] = {'isEnabled': False, 'begin': 0, 'end': part['duration']}
     curve = request.get('pitch_curve')

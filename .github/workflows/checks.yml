@@ -12,5 +12,7 @@ jobs:
       - run: python bridge/test_host.py
       - run: python bridge/test_score.py
       - run: python bridge/pinyin.py
+      - run: python bridge/japanese.py
+      - run: python bridge/test_japanese.py
       - run: python bridge/test_settings.py
       - run: python enunu/test_protocol.py

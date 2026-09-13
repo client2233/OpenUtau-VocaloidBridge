@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bridge"))
+from japanese import aliases as japanese_aliases
 from pinyin import aliases
 
 parser = argparse.ArgumentParser()
@@ -11,17 +12,24 @@ parser.add_argument('--voices', required=True)
 parser.add_argument('--data-dir', required=True, help='OpenUtau data directory')
 parser.add_argument('--update', action='store_true', help='Upgrade only recognized original prototype tables, with backups')
 args = parser.parse_args()
+def tables(lyrics):
+    return {
+        'lyrics.table': '\n'.join(f'{x} {x}' for x in lyrics) + '\n',
+        'phonemes.hed': 'QS "phonemes" {' + ','.join(f'*-{x}+*' for x in lyrics) + '}\n',
+    }
+
+# Upgrade only byte-for-byte recognized managed tables, never user customization.
+pinyin = aliases()
+japanese = japanese_aliases()
 old_tables = {
-    'lyrics.table': '\n'.join(f'{x} {x}' for x in ('la', 'a', 'i', 'u', 'e', 'o')) + '\n',
-    'phonemes.hed': 'QS "phonemes" {*-la+*,*-a+*,*-i+*,*-u+*,*-e+*,*-o+*}\n',
+    'lyrics.table': ['\n'.join(f'{x} {x}' for x in ('la', 'a', 'i', 'u', 'e', 'o')) + '\n'],
+    'phonemes.hed': ['QS "phonemes" {*-la+*,*-a+*,*-i+*,*-u+*,*-e+*,*-o+*}\n'],
 }
-previous_lyrics = aliases()
-for name, content in {
-    'lyrics.table': '\n'.join(f'{x} {x}' for x in previous_lyrics) + '\n',
-    'phonemes.hed': 'QS "phonemes" {' + ','.join(f'*-{x}+*' for x in previous_lyrics) + '}\n',
-}.items():
-    old_tables[name] = (old_tables[name], content)
-lyrics = previous_lyrics + ['-']
+for spellings in (pinyin, pinyin + ['-'], pinyin + [x for x in japanese if x != 'ー'],
+                  pinyin + [x for x in japanese if x != 'ー'] + ['-'], japanese + ['-']):
+    for filename, content in tables(spellings).items():
+        old_tables[filename].append(content)
+
 root = Path(args.data_dir).expanduser().resolve() / 'Singers'
 voices = json.loads(Path(args.voices).read_text(encoding='utf-8'))['voices']
 for voice in voices:
@@ -30,13 +38,13 @@ for voice in voices:
         raise ValueError('Invalid singer name')
     folder = root / ('VOCALOID-Wine-' + name)
     folder.mkdir(parents=True, exist_ok=True)
+    lyrics = japanese + ['-'] if voice.get('lang_id', 4) == 0 else pinyin + ['-']
     files = {
         'character.txt': '',
         'character.yaml': 'name: ' + json.dumps(name) + '\nsinger_type: enunu\ntext_file_encoding: utf-8\n',
         'enuconfig.yaml': 'feature_type: melf0\nsample_rate: 44100\nframe_period: 5.0\ntable_path: lyrics.table\nquestion_path: phonemes.hed\nextensions:\n  wav_synthesizer: synthe\n',
         'bridge.voice.json': json.dumps(voice, ensure_ascii=False, indent=2) + '\n',
-        'lyrics.table': '\n'.join(f'{x} {x}' for x in lyrics) + '\n',
-        'phonemes.hed': 'QS "phonemes" {' + ','.join(f'*-{x}+*' for x in lyrics) + '}\n',
+        **tables(lyrics),
     }
     for name, content in files.items():
         path = folder / name

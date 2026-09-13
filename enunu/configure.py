@@ -151,7 +151,7 @@ class SettingsWindow:
         def work():
             return self.read_voices()
         def done(voices):
-            self.show_voices(voices); self.status.set('已读取 '+str(len(voices))+' 个中文声库')
+            self.show_voices(voices); self.status.set('已读取 '+str(len(voices))+' 个外部声库')
             self.write_log('声库列表已更新。点击“安装 / 更新声库描述”后重启 OpenUtau。')
         self.background(work,done)
 
