@@ -1,11 +1,9 @@
 """Standalone native settings/launcher for the existing OpenUtau ENUNU bridge."""
 import argparse
-import fcntl
 import json
 import os
 from pathlib import Path
 import queue
-import signal
 import socket
 import subprocess
 import sys
@@ -14,10 +12,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
+# Child logs use one encoding on Windows as well as Linux.
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'bridge'))
 from singer_image import set_image, import_installed_images
 from host import invoke
+from platform_support import IS_WINDOWS, data_directory, process_alive, stop_tree, lock_window
 from settings import native_directory, save_json, validate
 
 
@@ -36,17 +38,18 @@ class SettingsWindow:
         frame = ttk.Frame(root, padding=16)
         frame.pack(fill='both', expand=True)
         frame.columnconfigure(1, weight=1)
-        ttk.Label(frame, text='VOCALOID / Wine', font=('', 15, 'bold')).grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 12))
-        initial = json.loads(self.config.read_text()) if self.config.exists() else {
+        ttk.Label(frame, text='VOCALOID / Windows' if IS_WINDOWS else 'VOCALOID / Wine', font=('', 15, 'bold')).grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 12))
+        initial = json.loads(self.config.read_text(encoding='utf-8')) if self.config.exists() else {
             'api_dir':'', 'wine':'/usr/bin/wine', 'wine_prefix':str(Path.home()/'.wine'),
-            'windows_python':'', 'vocaloid_dir':'', 'common_dir':'', 'timeout_seconds':120}
+            'windows_python':sys.executable if IS_WINDOWS else '', 'vocaloid_dir':'', 'common_dir':'', 'timeout_seconds':120}
         self.fields = {}
         self.controls = []
         rows = [('api_dir', 'API 项目目录（用户提供）', True), ('wine', 'Wine 程序', False),
                 ('wine_prefix', 'Wine 前缀', True), ('windows_python', 'Windows Python', False),
                 ('vocaloid_dir', 'V6 编辑器 / DLL 目录', True), ('common_dir', 'V6 公共资源目录', True),
                 ('timeout_seconds', '单次合成超时（秒）', None), ('data_dir', 'OpenUtau 用户数据目录', True)]
-        initial['data_dir'] = str(data_dir or initial.get('openutau_data_dir', Path(os.environ.get('XDG_DATA_HOME',Path.home()/'.local/share'))/'OpenUtau'))
+        if IS_WINDOWS: rows = [row for row in rows if row[0] not in ('wine', 'wine_prefix')]
+        initial['data_dir'] = str(data_dir or initial.get('openutau_data_dir', data_directory()))
         for row, (key, label, directory) in enumerate(rows, 1):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', padx=(0, 10), pady=4)
             value = initial.get(key, '')
@@ -66,7 +69,7 @@ class SettingsWindow:
             button.pack(side='left', padx=(0,8)); self.controls.append(button)
         self.voice_list = tk.Listbox(frame, height=4)
         self.voice_list.grid(row=10,column=0,columnspan=3,sticky='ew')
-        if self.voices.exists(): self.show_voices(json.loads(self.voices.read_text()).get('voices', []))
+        if self.voices.exists(): self.show_voices(json.loads(self.voices.read_text(encoding='utf-8')).get('voices', []))
         service = ttk.Frame(frame)
         service.grid(row=11,column=0,columnspan=3,sticky='w',pady=10)
         self.start_button = ttk.Button(service,text='启动桥接',command=self.start)
@@ -86,7 +89,7 @@ class SettingsWindow:
         try:
             current = self.fields[key].get()
             if key in ('vocaloid_dir','common_dir'):
-                current = str(native_directory(current,self.fields['wine_prefix'].get()))
+                current = str(native_directory(current,self.fields['wine_prefix'].get() if 'wine_prefix' in self.fields else ''))
             initial = Path(current).expanduser()
             if not initial.is_dir(): initial = initial.parent
             options = dict(parent=self.root,initialdir=str(initial),title='选择目录' if directory else '选择文件')
@@ -155,7 +158,7 @@ class SettingsWindow:
     def read_voices(self):
         result = invoke(self.config,'list')
         voices = result['voices']
-        if not voices: raise ValueError('该前缀中没有可用的外部声库')
+        if not voices: raise ValueError('所选后端中没有可用的外部声库')
         result['voices'] = voices
         save_json(self.voices,result)
         return voices
@@ -166,7 +169,7 @@ class SettingsWindow:
         def work():
             voices = self.read_voices()
             result = subprocess.run([sys.executable,str(ROOT/'enunu/prepare_singers.py'),
-                '--voices',str(self.voices),'--data-dir',str(data),'--update'],capture_output=True,text=True,timeout=30)
+                '--voices',str(self.voices),'--data-dir',str(data),'--update'],capture_output=True,text=True,encoding='utf-8',timeout=30)
             if result.returncode: raise RuntimeError(result.stderr.strip() or result.stdout.strip())
             count = import_installed_images(data, voices, json.loads(self.config.read_text(encoding="utf-8")))
             return result.stdout + f"\n自动导入 {count} 个本机歌手图片\n", voices
@@ -187,7 +190,8 @@ class SettingsWindow:
             if not self.save(): return
             self.process = subprocess.Popen([sys.executable,str(ROOT/'enunu/server.py'),
                 '--config',str(self.config)],cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                text=True,bufsize=1,start_new_session=True)
+                text=True,encoding='utf-8',bufsize=1,start_new_session=not IS_WINDOWS,
+                creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) if IS_WINDOWS else 0)
             save_json(str(self.config)+'.service.local.json',dict(Ready=False,Pid=self.process.pid))
             self.status.set('正在启动桥接…'); self.set_controls()
             process = self.process
@@ -199,7 +203,7 @@ class SettingsWindow:
                     process.stdout.close()
             threading.Thread(target=read,daemon=True).start()
         except OSError as error:
-            if error.errno == 98: self.error(f'端口 {port} 已被其他服务占用，请先停止原来的 ENUNU / 桥接服务')
+            if error.errno in (98, 10048): self.error(f'端口 {port} 已被其他服务占用，请先停止原来的 ENUNU / 桥接服务')
             else: self.error(error)
 
     def stop(self):
@@ -207,14 +211,12 @@ class SettingsWindow:
             save_json(str(self.config)+'.service.local.json',dict(Ready=False,Pid=self.process.pid))
             self.stopping = True
             self.status.set('正在停止桥接…')
-            try: os.killpg(self.process.pid,signal.SIGTERM)
-            except ProcessLookupError: pass
+            stop_tree(self.process)
             self.stop_button.configure(state='disabled')
             process = self.process
             def force_stop():
                 if process.poll() is None:
-                    try: os.killpg(process.pid,signal.SIGKILL)
-                    except ProcessLookupError: pass
+                    stop_tree(process, force=True)
             self.root.after(2000,force_stop)
 
     def set_controls(self):
@@ -225,9 +227,12 @@ class SettingsWindow:
         self.stop_button.configure(state='normal' if running and not self.stopping else 'disabled')
 
     def poll(self):
+        show = Path(str(self.config) + '.gui.show')
+        if show.exists():
+            show.unlink(missing_ok=True)
+            self.root.deiconify(); self.root.lift()
         if self.parent_pid and not self.closing:
-            try: os.kill(self.parent_pid, 0)
-            except ProcessLookupError:
+            if not process_alive(self.parent_pid):
                 self.closing = True
                 self.stop()
         while True:
@@ -274,25 +279,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config_path = Path(args.config).expanduser().resolve()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    lock = open(str(config_path) + '.gui.lock', 'a')
+    lock = open(str(config_path) + '.gui.lock', 'a+b')
     root = tk.Tk()
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_window(lock)
     except BlockingIOError:
         root.withdraw()
-        try:
-            owner = int(Path(str(config_path) + '.gui.lock').read_text().strip())
-            if owner <= 0: raise ValueError('Invalid window owner')
-            os.kill(owner, signal.SIGUSR1)
-        except (ValueError, OSError):
-            messagebox.showinfo('桥接设置', '该配置的设置窗口已打开，请使用已有窗口', parent=root)
+        Path(str(config_path) + '.gui.show').touch()
         root.destroy(); sys.exit(0)
     try:
         app = SettingsWindow(root,Path(args.config).expanduser().resolve(),Path(args.voices).expanduser().resolve(),args.data_dir, args.parent_pid)
-        def show_window(signum, frame):
-            root.after(0, lambda: (root.deiconify(), root.lift()))
-        signal.signal(signal.SIGUSR1, show_window)
-        lock.seek(0);lock.truncate();lock.write(str(os.getpid()));lock.flush()
+        Path(str(config_path) + '.gui.show').unlink(missing_ok=True)
         if args.parent_pid and config_path.is_file(): root.after(0, app.start)
         root.mainloop()
     except Exception as error:

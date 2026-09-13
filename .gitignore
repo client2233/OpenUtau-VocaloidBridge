@@ -47,3 +47,5 @@ credentials/
 
 v6api/
 external-api/
+
+*.gui.show

@@ -1,4 +1,4 @@
-"""Native Linux launcher. No shell interpolation; configurable Wine prefix."""
+"""Native launcher: Windows directly, Linux through the selected Wine prefix."""
 import argparse
 import json
 import os
@@ -8,10 +8,12 @@ import sys
 import queue
 import threading
 import tempfile
+from platform_support import IS_WINDOWS
 
 
 def windows_path(path):
     # The default Wine Z: mapping exposes the Linux filesystem.
+    if IS_WINDOWS: return str(Path(path).resolve())
     return 'Z:' + str(Path(path).resolve()).replace('/', '\\')
 
 
@@ -33,11 +35,11 @@ def close_worker():
 
 class Worker:
     def __init__(self, argv, env):
-        self.log = tempfile.TemporaryFile(mode='w+t')
+        self.log = tempfile.TemporaryFile(mode='w+t', encoding='utf-8')
         self.replies = queue.Queue()
         try:
             self.process = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=self.log, text=True, bufsize=1)
+                stdout=subprocess.PIPE, stderr=self.log, text=True, encoding='utf-8', bufsize=1)
         except Exception:
             self.log.close()
             raise
@@ -54,10 +56,10 @@ class Worker:
         self.process.stdin.write(json.dumps(dict(request=windows_path(request), output=windows_path(output))) + '\n')
         self.process.stdin.flush()
         try: reply = self.replies.get(timeout=timeout)
-        except queue.Empty: raise TimeoutError('Wine worker render timed out')
+        except queue.Empty: raise TimeoutError('Backend worker render timed out')
         if reply is None:
             self.log.seek(0)
-            raise RuntimeError('Wine worker exited: ' + self.log.read()[-2000:])
+            raise RuntimeError('Backend worker exited: ' + self.log.read()[-2000:])
         if not reply.get('ok'): raise RuntimeError(reply.get('error', 'Render failed'))
         return reply
 
@@ -81,25 +83,29 @@ def invoke(config_path, command, request=None, output=None):
     from settings import validate
     config = validate(json.loads(Path(config_path).read_text(encoding='utf-8')))
     prefix = Path(config['wine_prefix']).expanduser().resolve()
-    if not (prefix / 'system.reg').is_file():
+    if not IS_WINDOWS and not (prefix / 'system.reg').is_file():
         raise ValueError('Select an existing Wine prefix')
     python = Path(config['windows_python']).expanduser().resolve()
     if not python.is_file():
         raise ValueError('Windows Python executable not found')
     worker = Path(__file__).with_name('worker.py')
-    argv = [config.get('wine', 'wine'), str(python), windows_path(worker), command,
+    base = [str(python), windows_path(worker)]
+    if not IS_WINDOWS: base.insert(0, config.get('wine', 'wine'))
+    argv = base + [command,
             '--api-dir', windows_path(config['api_dir']), '--vocaloid-dir', config['vocaloid_dir'], '--common-dir', config['common_dir']]
     if command == 'render':
         if not request or not output:
             raise ValueError('Render requires request and output paths')
         argv += ['--request', windows_path(request), '--output', windows_path(output)]
-    env = dict(os.environ, WINEPREFIX=str(prefix), WINEDEBUG='-all')
+    env = dict(os.environ)
+    if not IS_WINDOWS: env.update(WINEPREFIX=str(prefix), WINEDEBUG='-all')
+    env['PYTHONIOENCODING'] = 'utf-8'
     if _persistent and command == 'render':
         global _worker
         signature = json.dumps(config, sort_keys=True)
         if _worker is not None and _worker.signature != signature: close_worker()
         if _worker is None:
-            worker_argv = argv[:3] + ['serve'] + argv[4:]
+            worker_argv = base + ['serve'] + argv[len(base)+1:]
             worker_argv = worker_argv[:worker_argv.index('--request')]
             _worker = Worker(worker_argv, env)
             _worker.signature = signature
@@ -109,12 +115,12 @@ def invoke(config_path, command, request=None, output=None):
             close_worker()
             raise
     result = subprocess.run(argv, env=env, capture_output=True, text=True,
-                            timeout=config.get('timeout_seconds', 120))
+                            timeout=config.get('timeout_seconds', 120), encoding='utf-8')
     if result.stderr:
         print(result.stderr, file=sys.stderr, end='')
     lines = result.stdout.strip().splitlines()
     if not lines:
-        raise RuntimeError(f'Wine worker exited {result.returncode} without a reply')
+        raise RuntimeError(f'Backend worker exited {result.returncode} without a reply')
     reply = json.loads(lines[-1])
     if result.returncode != 0 or not reply.get('ok'):
         raise RuntimeError(reply.get('error', f'Worker exited {result.returncode}'))

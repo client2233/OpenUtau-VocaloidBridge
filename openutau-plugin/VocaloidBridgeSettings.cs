@@ -10,7 +10,7 @@ namespace OpenUtau.Plugin.VocaloidBridge;
 public sealed class VocaloidBridgeSettings : BatchEdit {
     private static readonly HashSet<string> watchedConfigs = new();
 
-    public string Name => "VOCALOID / Wine 设置";
+    public string Name => OperatingSystem.IsWindows() ? "VOCALOID / Windows 设置" : "VOCALOID / Wine 设置";
 
     public void Run(UProject project, UVoicePart part, List<UNote> selectedNotes, DocManager docManager) {
         var folder = Path.GetDirectoryName(typeof(VocaloidBridgeSettings).Assembly.Location)!;
@@ -21,7 +21,7 @@ public sealed class VocaloidBridgeSettings : BatchEdit {
         WatchBackend(settings.BackendConfig, docManager);
         var script = Path.Combine(settings.ProjectDirectory, "enunu", "configure.py");
         if (!File.Exists(script)) throw new FileNotFoundException("VOCALOID bridge settings script not found", script);
-        var info = new ProcessStartInfo(settings.LinuxPython) {
+        var info = new ProcessStartInfo(settings.Python ?? settings.LinuxPython) {
             WorkingDirectory = settings.ProjectDirectory,
             UseShellExecute = false,
         };
@@ -30,6 +30,8 @@ public sealed class VocaloidBridgeSettings : BatchEdit {
         info.ArgumentList.Add(settings.BackendConfig);
         info.ArgumentList.Add("--voices");
         info.ArgumentList.Add(settings.VoicesFile);
+        info.ArgumentList.Add("--data-dir");
+        info.ArgumentList.Add(PathManager.Inst.DataPath);
         info.ArgumentList.Add("--parent-pid");
         info.ArgumentList.Add(Environment.ProcessId.ToString());
         using var child = Process.Start(info)
@@ -75,6 +77,7 @@ public sealed class VocaloidBridgeSettings : BatchEdit {
     }
 
     private sealed class LauncherSettings {
+        public string? Python { get; set; }
         public string LinuxPython { get; set; } = "/usr/bin/python3";
         public string ProjectDirectory { get; set; } = "";
         public string BackendConfig { get; set; } = "";

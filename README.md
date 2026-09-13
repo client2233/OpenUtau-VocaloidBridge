@@ -1,12 +1,12 @@
 # OpenUtau Vocaloid Bridge
 
-用于 Linux 原生 OpenUtau 的插件入口和合成适配层，无需修改或重新编译 OpenUtau。
+用于 Linux / Windows 原生 OpenUtau 的插件入口和合成适配层，无需修改或重新编译 OpenUtau。
 
 > 本项目为独立第三方项目，非 Yamaha 或 OpenUtau 官方插件。下文仅以“用户已合法取得一个兼容 API”的**假设条件**说明配置与使用，不指向或提供具体第三方 API 项目。本仓库不捆绑、自动查找、下载或推荐该 API，也不分发编辑器、引擎 DLL、声库或激活数据。假设示例不表示相关 API 实际存在、可获得或已获权利人许可，亦不能替代适用法律和软件许可审查。详见 [项目声明](LEGAL.md)。
 
 ## 编译
 
-需要 .NET 10 SDK，以及已安装的 OpenUtau（包含 `OpenUtau.Core.dll`）。
+需要 .NET 10 SDK，以及已安装的 OpenUtau（包含 `OpenUtau.Core.dll`）。编译时自动识别该 DLL 的新旧渲染接口及 .NET 8/9/10 目标框架；必须引用准备运行插件的那份 OpenUtau，fork 可能另有接口差异。
 
 在项目根目录执行，将路径替换为自己的 OpenUtau 安装目录：
 
@@ -15,10 +15,18 @@ dotnet build openutau-plugin -c Release \
   -p:OpenUtauDirectory=/opt/openutau
 ```
 
-编译结果：
+Windows PowerShell 使用一行命令，包含空格的参数整体加引号，不使用 Linux 的 `\` 续行符：
+
+```powershell
+dotnet build openutau-plugin -c Release "-p:OpenUtauDirectory=C:\Program Files\OpenUtau"
+```
+
+通常无需手动设置接口。如特殊 fork 的自动识别不适用，可追加 `-p:OpenUtauRenderEvents=false`（旧版 5 参数）或 `true`（新版 6 参数），目标框架可用 `-p:OpenUtauTargetFramework=net8.0` 等指定。这些选项针对 OpenUtau 接口和运行时，与操作系统无关。
+
+编译结果（目标框架随引用的 OpenUtau 变化）：
 
 ```text
-openutau-plugin/bin/Release/net10.0/OpenUtau.Plugin.VocaloidBridge.dll
+openutau-plugin/bin/Release/net*/OpenUtau.Plugin.VocaloidBridge.dll
 ```
 
 ## 安装
@@ -40,9 +48,27 @@ python openutau-plugin/install.py --data-dir /example/OpenUtau-data
 
 安装器会记录当前 Python 和项目路径。请保留项目目录；移动项目或更换 Python 环境后重新运行安装器。不要手动复制 OpenUtau 核心 DLL 或专有引擎 DLL 到插件目录。
 
+### Windows 安装
+
+使用包含 Tkinter 的 64 位 Python 3.10+（例如常规 Windows Python 安装）。在项目根目录用 PowerShell 执行：
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe openutau-plugin/install.py --data-dir "C:\example\OpenUtau-data"
+```
+
+`C:\example\OpenUtau-data` 是占位路径，必须改成 OpenUtau 的实际用户数据目录：便携版通常就是程序目录，安装版可能在用户文档目录；以 OpenUtau 打开的数据目录为准，不能固定假设为 AppData。安装器会选择最近一次编译的 Release DLL，也可用 `--dll` 显式指定。
+
+重启 OpenUtau 后打开 **批量编辑 → 外部 → VOCALOID / Windows 设置**。Windows 不显示 Wine 程序和前缀；填写用户自行提供的假设兼容 API 目录、64 位 Windows Python 的 `python.exe`、本机编辑器目录和公共资源目录。Windows Python 可以使用上述虚拟环境的解释器，但仍须满足用户 API 自身的依赖要求。路径含空格无需手动加入引号。
+
+Windows 直接启动后端，Linux 仍使用 Wine；两者共用请求协议和参数转换。关闭设置窗口会隐藏窗口，重新点击插件菜单可恢复；停止桥接或退出 OpenUtau 后关闭本插件启动的服务进程及其子进程，不会终止其他 Python 或编辑器进程。
+
+Windows 路径已做模拟检查；维护者本机为 Linux，完整 Windows 后端运行和具体 fork 的行为仍需要用户实测。不要把 API、引擎、声库或本机配置提交到仓库。
+
 ## 配置与使用：假设示例
 
-以下步骤**假设**用户已经有权使用一个满足 [API 兼容要求](BACKEND_PROTOCOL.md) 的 Python 接口包，以及能正常运行且授权有效的 Wine 编辑器和传统中文声库。项目不提供这些条件的获取途径，也不认定购买编辑器就包含第三方接口调用许可。
+以下步骤**假设**用户已经有权使用一个满足 [API 兼容要求](BACKEND_PROTOCOL.md) 的 Python 接口包，以及能正常运行且授权有效的编辑器（Linux 使用 Wine，Windows 原生运行）和传统中文声库。项目不提供这些条件的获取途径，也不认定购买编辑器就包含第三方接口调用许可。
 
 1. 重启 OpenUtau，双击歌唱片段进入钢琴窗。
 2. 打开 **批量编辑 → 外部 → VOCALOID / Wine 设置**。
@@ -153,7 +179,7 @@ python3 openutau-plugin/test_renderer.py --dotnet /example/dotnet --real
 
 在桥接设置中先安装声库描述，再在歌手列表中选择歌手，点击“设置歌手图片”选择本地 PNG 或 JPEG。图片复制到该歌手的描述目录，通过 OpenUtau 原生 `image` 和 `portrait` 字段显示头像和立绘。重启 OpenUtau 后生效，更新声库描述会保留图片设置。请使用有权使用的图片；项目不提供歌手图片。
 
-安装／更新声库描述时，会在所选 Wine 前缀和公共资源目录中按歌手 ID 查找本机 `setup.bmp` 图片并自动设置。已有手动图片会保留。安装资源图片可能与编辑器头像不同；找不到图片时可手动选择。本项目不包含这些图片。
+安装／更新声库描述时，会在所选 Wine 前缀和公共资源目录中按歌手 ID 查找本机 `setup.bmp` 图片并仅设置头像，不将不透明安装图片当作钢琴窗立绘。已有手动图片会保留。安装资源图片可能与编辑器头像不同；找不到图片时可手动选择。本项目不包含这些图片。
 
 ### 播放性能与渲染进度
 
@@ -162,3 +188,5 @@ python3 openutau-plugin/test_renderer.py --dotnet /example/dotnet --real
 音频仍按乐句整句合成并串行处理，并非流式合成。首次播放或编辑后可能等待；建议等底部渲染进度完成再试听。已有 WAV 缓存继续复用，音符或参数修改会更新缓存。
 
 回归检查：`python3 bridge/test_persistent.py`；配置好本机后端后可添加 `--real` 检查复用前后音频一致性与参数更新。
+
+平台启动模拟检查：`python bridge/test_windows.py`。新旧接口夹具检查：`python openutau-plugin/test_compatibility.py --dotnet /path/to/sdk/dotnet`；夹具通过不代表某个 fork 已实机验证。

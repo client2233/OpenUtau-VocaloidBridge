@@ -20,10 +20,10 @@ with tempfile.TemporaryDirectory(prefix='utau-plugin-test-') as folder:
     subprocess.run([sys.executable,str(root/'openutau-plugin/install.py'),
         '--data-dir',str(data/'OpenUtau'),'--project-dir',str(project),'--python',str(alias)],check=True,capture_output=True,text=True)
     launcher=json.loads((plugin/'bridge-launcher.json').read_text())
-    assert launcher['LinuxPython']==str(alias), 'Installer dereferenced the virtualenv interpreter'
+    assert launcher['Python']==str(alias), 'Installer dereferenced the virtualenv interpreter'
     env=dict(os.environ,XDG_DATA_HOME=str(data),XDG_CACHE_HOME=str(temp/'cache'))
     result=subprocess.run([sys.argv[1] if len(sys.argv)>1 else 'dotnet',
-        str(root/'openutau-plugin/Smoke/bin/Debug/net10.0/Smoke.dll'),str(log)],env=env,text=True,capture_output=True,timeout=20)
+        str(root/'openutau-plugin/Smoke/bin/Release/net10.0/Smoke.dll'),str(log)],env=env,text=True,capture_output=True,timeout=20)
     print(result.stdout,end='')
     if result.returncode: print(result.stderr,file=sys.stderr)
     raise SystemExit(result.returncode)

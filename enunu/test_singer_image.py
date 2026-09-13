@@ -35,5 +35,13 @@ with tempfile.TemporaryDirectory() as tmp:
     config = {'wine_prefix': str(root/'prefix'), 'common_dir': 'C:\\Common'}
     assert import_installed_images(tmp, [{'name':'Test','comp_id':'test'}], config) == 1
     assert 'bridge-avatar.bmp' in (folder/'character.yaml').read_text()
+    assert 'portrait:' not in (folder/'character.yaml').read_text()
+    with (folder/'character.yaml').open('a') as metadata:
+        metadata.write('portrait: "bridge-avatar.bmp"\n')
+    assert import_installed_images(tmp, [{'name':'Test','comp_id':'test'}], config) == 1
+    assert 'portrait:' not in (folder/'character.yaml').read_text()
+    with (folder/'character.yaml').open('a') as metadata:
+        metadata.write('portrait: "custom.png"\n')
     assert import_installed_images(tmp, [{'name':'Test','comp_id':'test'}], config) == 0
+    assert 'portrait: "custom.png"' in (folder/'character.yaml').read_text()
 print('PASS: native image/portrait metadata, copied picture, descriptor updates preserve settings')

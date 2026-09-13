@@ -109,7 +109,17 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
     }
 
     public Task<RenderResult> Render(RenderPhrase phrase, Progress progress, int trackNo,
-            CancellationTokenSource cancellation, bool isPreRender, RenderPhraseEvents? events = null) {
+            CancellationTokenSource cancellation, bool isPreRender = false) =>
+        RenderCore(phrase, progress, trackNo, cancellation, isPreRender);
+
+#if OPENUTAU_RENDER_EVENTS
+    public Task<RenderResult> Render(RenderPhrase phrase, Progress progress, int trackNo,
+            CancellationTokenSource cancellation, bool isPreRender, RenderPhraseEvents? events) =>
+        RenderCore(phrase, progress, trackNo, cancellation, isPreRender);
+#endif
+
+    private Task<RenderResult> RenderCore(RenderPhrase phrase, Progress progress, int trackNo,
+            CancellationTokenSource cancellation, bool isPreRender) {
         var token = cancellation.Token;
         return Task.Run(async () => {
         bool acquired = false;
@@ -125,7 +135,7 @@ internal sealed class BridgeRenderer(string config, int port = 15556) : IRendere
             Directory.CreateDirectory(PathManager.Inst.CachePath);
             phrase.AddCacheFile(path);
             if (!File.Exists(path)) {
-                if (!BackendReady()) throw new InvalidOperationException("桥接未启动，请打开 VOCALOID / Wine 设置并启动桥接。");
+                if (!BackendReady()) throw new InvalidOperationException("桥接未启动，请打开桥接设置并启动桥接。");
                 var input = path + ".request.local.json";
                 try {
                     File.WriteAllText(input, request);

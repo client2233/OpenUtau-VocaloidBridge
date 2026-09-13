@@ -1,10 +1,12 @@
 """Tk layout/stop regression; requires a display, no Wine or engine. Uses a temporary port."""
+from unittest.mock import patch
 import json,socket,subprocess,sys,tempfile,threading,time,os,signal
 from pathlib import Path
 import tkinter as tk
 import zmq
 r=Path(__file__).resolve().parents[1];sys.path.insert(0,str(r/'enunu'))
 from configure import SettingsWindow
+import configure
 with tempfile.TemporaryDirectory() as folder:
  p=Path(folder);config=p/'config.json';config.write_text((r/'bridge/config.example.json').read_text())
  root=tk.Tk();app=SettingsWindow(root,config,p/'voices.json',p/'OpenUtau');root.update();root.lift();root.after(200,lambda:None)
@@ -15,6 +17,16 @@ with tempfile.TemporaryDirectory() as folder:
  assert button.master.master.grid_slaves(row=11)==[button.master], 'Service row overlaps another widget'
  assert button.master.grid_info()['row']==11
  root.withdraw()
+ # Restoring a hidden window uses a marker file on both platforms, not Unix signals.
+ marker=Path(str(config)+'.gui.show');marker.touch();app.poll();root.update()
+ assert root.state()!='withdrawn' and not marker.exists()
+ root.withdraw()
+ # Simulate Windows layout without starting any engine or changing real settings.
+ with patch.object(configure,'IS_WINDOWS',True):
+  win=tk.Toplevel(root);native=SettingsWindow(win,config,p/'winvoices.json',p/'OpenUtau');root.update()
+  assert 'wine' not in native.fields and 'wine_prefix' not in native.fields
+  assert native.stop_button.master.grid_info()['row']==11
+  native.closing=True;native.poll()
  with socket.socket() as probe:probe.bind(('127.0.0.1',0));port=probe.getsockname()[1]
  ctx=zmq.Context()
  def launch():

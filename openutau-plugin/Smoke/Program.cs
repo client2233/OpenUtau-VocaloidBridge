@@ -34,8 +34,9 @@ static void Run(string logFile) {
     var deadline = DateTime.UtcNow.AddSeconds(5);
     while (!File.Exists(logFile) && DateTime.UtcNow < deadline) Thread.Sleep(20);
     var argv = JsonSerializer.Deserialize<string[]>(File.ReadAllText(logFile))!;
-    if (argv.Length != 7 || argv[1] != "--config" || argv[3] != "--voices"
-        || argv[5] != "--parent-pid" || argv[6] != Environment.ProcessId.ToString()) throw new Exception("Incorrect launcher arguments");
+    if (argv.Length != 9 || argv[1] != "--config" || argv[3] != "--voices"
+        || argv[5] != "--data-dir" || argv[6] != PathManager.Inst.DataPath
+        || argv[7] != "--parent-pid" || argv[8] != Environment.ProcessId.ToString()) throw new Exception("Incorrect launcher arguments");
     if (part.notes.Count != 1 || part.notes.First()!=note || note.position!=480 || note.duration!=480 || note.lyric!="ni")
         throw new Exception("Plugin changed the score");
     var stateFile = Path.Combine(Path.GetDirectoryName(logFile)!, "project with spaces", "bridge", "config.local.json.service.local.json");

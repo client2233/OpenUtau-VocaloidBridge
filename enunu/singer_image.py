@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import os
 
-def set_image(data_dir, name, source):
+def set_image(data_dir, name, source, portrait=True):
     if not name or name in ('.', '..') or '/' in name or '\\' in name:
         raise ValueError('Invalid singer name')
     folder = Path(data_dir).expanduser().resolve() / 'Singers' / ('VOCALOID-Wine-' + name)
@@ -22,8 +22,10 @@ def set_image(data_dir, name, source):
     temp.write_bytes(content)
     os.replace(temp, folder / image)
     lines = metadata.read_text(encoding='utf-8').splitlines()
-    lines = [line for line in lines if not line.startswith(('image:', 'portrait:'))]
-    text = '\n'.join(lines) + '\nimage: ' + json.dumps(image) + '\nportrait: ' + json.dumps(image) + '\n'
+    fields = ('image:', 'portrait:') if portrait else ('image:',)
+    lines = [line for line in lines if not line.startswith(fields)]
+    text = '\n'.join(lines) + '\nimage: ' + json.dumps(image) + '\n'
+    if portrait: text += 'portrait: ' + json.dumps(image) + '\n'
     temp = metadata.with_name('character.yaml.installing')
     temp.write_text(text, encoding='utf-8')
     os.replace(temp, metadata)
@@ -33,9 +35,13 @@ def set_image(data_dir, name, source):
 def import_installed_images(data_dir, voices, config):
     """Match local installation pictures by exact voice ID; never download assets."""
     from settings import native_directory
-    prefix = Path(config['wine_prefix']).expanduser().resolve()
+    from platform_support import IS_WINDOWS
+    prefix = Path(config.get('wine_prefix') or '.').expanduser().resolve()
     roots = [native_directory(config['common_dir'], prefix)]
-    roots += [prefix / 'drive_c' / name for name in ('Program Files', 'Program Files (x86)')]
+    if IS_WINDOWS:
+        roots += [Path(os.environ[key]) for key in ('ProgramFiles', 'ProgramFiles(x86)') if os.environ.get(key)]
+    else:
+        roots += [prefix / 'drive_c' / name for name in ('Program Files', 'Program Files (x86)')]
     ids = {voice['comp_id'] for voice in voices}
     pictures = {}
     for root in roots:
@@ -52,8 +58,17 @@ def import_installed_images(data_dir, voices, config):
             raise ValueError('Invalid singer name')
         metadata = Path(data_dir).expanduser().resolve() / 'Singers' / ('VOCALOID-Wine-' + name) / 'character.yaml'
         if not metadata.is_file(): continue
-        if any(line.startswith('image:') for line in metadata.read_text(encoding='utf-8').splitlines()):
+        lines = metadata.read_text(encoding='utf-8').splitlines()
+        legacy = 'portrait: "bridge-avatar.bmp"'
+        copied = metadata.parent / 'bridge-avatar.bmp'
+        if 'image: "bridge-avatar.bmp"' in lines and legacy in lines and copied.is_file() and copied.read_bytes() == image.read_bytes():
+            # Older versions used the installation banner as a piano-roll portrait.
+            pending = metadata.with_name('character.yaml.installing')
+            pending.write_text('\n'.join(line for line in lines if line != legacy) + '\n', encoding='utf-8')
+            os.replace(pending, metadata)
+            count += 1
+        if any(line.startswith('image:') for line in lines):
             continue # Keep user-selected pictures.
-        set_image(data_dir, name, image)
+        set_image(data_dir, name, image, portrait=False)
         count += 1
     return count

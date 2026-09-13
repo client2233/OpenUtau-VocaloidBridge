@@ -4,9 +4,12 @@ import os
 from pathlib import Path, PureWindowsPath
 import shutil
 import tempfile
+from platform_support import IS_WINDOWS
 
 
 def native_directory(value, prefix):
+    if IS_WINDOWS:
+        return Path(value).expanduser().resolve()
     path = PureWindowsPath(value)
     if path.drive.upper() == 'C:':
         return Path(prefix).expanduser().resolve() / 'drive_c' / Path(*path.parts[1:])
@@ -18,6 +21,8 @@ def native_directory(value, prefix):
 
 
 def wine_directory(value, prefix):
+    if IS_WINDOWS:
+        return str(Path(value).expanduser().resolve())
     native = native_directory(value, prefix)
     drive = Path(prefix).expanduser().resolve() / 'drive_c'
     try:
@@ -33,12 +38,14 @@ def validate(config):
     api = Path(config['api_dir']).expanduser().resolve()
     if not (api/'v6api/__init__.py').is_file():
         raise ValueError('API 目录中应包含 v6api/__init__.py')
-    prefix = Path(config['wine_prefix']).expanduser().resolve()
-    if not (prefix / 'system.reg').is_file():
-        raise ValueError('请选择已有 Wine 前缀（目录中应有 system.reg）')
-    wine = shutil.which(config['wine'])
-    if not wine:
-        raise ValueError('找不到可执行的 Wine 程序')
+    prefix, wine = '', ''
+    if not IS_WINDOWS:
+        prefix = Path(config['wine_prefix']).expanduser().resolve()
+        if not (prefix / 'system.reg').is_file():
+            raise ValueError('请选择已有 Wine 前缀（目录中应有 system.reg）')
+        wine = shutil.which(config['wine'])
+        if not wine:
+            raise ValueError('找不到可执行的 Wine 程序')
     python = Path(config['windows_python']).expanduser().resolve()
     if not python.is_file():
         raise ValueError('找不到 Windows Python 可执行文件')
@@ -52,7 +59,7 @@ def validate(config):
     common = native_directory(config['common_dir'], prefix)
     if not common.is_dir():
         raise ValueError('找不到 V6 公共资源目录')
-    return dict(api_dir=str(api),wine=str(Path(wine).resolve()), wine_prefix=str(prefix), windows_python=str(python),
+    return dict(api_dir=str(api),wine=str(Path(wine).resolve()) if wine else '', wine_prefix=str(prefix), windows_python=str(python),
                 vocaloid_dir=wine_directory(config['vocaloid_dir'], prefix),
                 common_dir=wine_directory(config['common_dir'], prefix), timeout_seconds=timeout)
 
